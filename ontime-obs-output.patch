@@ -1,0 +1,1034 @@
+diff --git a/apps/client/src/common/utils/automationOutputs.ts b/apps/client/src/common/utils/automationOutputs.ts
+index 234dc83..2435dc7 100644
+--- a/apps/client/src/common/utils/automationOutputs.ts
++++ b/apps/client/src/common/utils/automationOutputs.ts
+@@ -4,6 +4,7 @@ const outputLabels: Record<AutomationOutput['type'], string> = {
+   osc: 'OSC',
+   http: 'HTTP',
+   ontime: 'Ontime',
++  obs: 'OBS',
+ };
+ 
+ export type OutputSummary = {
+@@ -19,7 +20,7 @@ export function summariseOutputs(outputs: AutomationOutput[]): OutputSummary[] {
+     counts.set(output.type, (counts.get(output.type) ?? 0) + 1);
+   }
+ 
+-  const order: AutomationOutput['type'][] = ['osc', 'http', 'ontime'];
++  const order: AutomationOutput['type'][] = ['osc', 'http', 'obs', 'ontime'];
+   return order
+     .filter((type) => counts.has(type))
+     .map((type) => ({ type, label: outputLabels[type], count: counts.get(type) as number }));
+diff --git a/apps/client/src/features/app-settings/panel/automations-panel/AutomationForm.module.scss b/apps/client/src/features/app-settings/panel/automations-panel/AutomationForm.module.scss
+index c5ae236..0947d45 100644
+--- a/apps/client/src/features/app-settings/panel/automations-panel/AutomationForm.module.scss
++++ b/apps/client/src/features/app-settings/panel/automations-panel/AutomationForm.module.scss
+@@ -132,6 +132,28 @@
+   color: $green-300;
+ }
+ 
++.tagObs {
++  background-color: $orange-1000;
++  color: $orange-300;
++}
++
++.obsStep {
++  display: grid;
++  grid-template-columns: 1.5rem minmax(13rem, 1fr) minmax(13rem, 1.5fr) auto;
++  gap: 0.5rem;
++  align-items: center;
++}
++
++.obsStepIndex {
++  color: $label-gray;
++  text-align: right;
++}
++
++.obsStepButtons {
++  display: flex;
++  gap: 0.25rem;
++}
++
+ .tagOntime {
+   background-color: $gray-1000;
+   color: $gray-200;
+diff --git a/apps/client/src/features/app-settings/panel/automations-panel/AutomationForm.tsx b/apps/client/src/features/app-settings/panel/automations-panel/AutomationForm.tsx
+index ed07cca..d3ecfde 100644
+--- a/apps/client/src/features/app-settings/panel/automations-panel/AutomationForm.tsx
++++ b/apps/client/src/features/app-settings/panel/automations-panel/AutomationForm.tsx
+@@ -1,4 +1,4 @@
+-import { Automation, AutomationDTO, isHTTPOutput, isOSCOutput, isOntimeAction } from 'ontime-types';
++import { Automation, AutomationDTO, isHTTPOutput, isOBSOutput, isOSCOutput, isOntimeAction } from 'ontime-types';
+ import { useEffect, useMemo, useState } from 'react';
+ import { useFieldArray, useForm } from 'react-hook-form';
+ import { IoAdd, IoTrash } from 'react-icons/io5';
+@@ -20,6 +20,7 @@ import { isOntimeCloud } from '../../../../externals';
+ import * as Panel from '../../panel-utils/PanelUtils';
+ import { isAutomation, makeFieldList, operators, type OutputErrors } from './automationUtils';
+ import HttpOutputForm from './HttpOutputForm';
++import ObsOutputForm from './ObsOutputForm';
+ import OntimeActionForm from './OntimeActionForm';
+ import OscOutputForm from './OscOutputForm';
+ import OutputCard, { type TestState } from './OutputCard';
+@@ -102,6 +103,22 @@ export default function AutomationForm({ automation, onClose }: AutomationFormPr
+     appendOutput({ type: 'http', url: '' });
+   };
+ 
++  const handleAddNewOBSOutput = () => {
++    // a common studio mode sequence, the user can adjust the steps
++    appendOutput({
++      type: 'obs',
++      targetIP: '127.0.0.1',
++      targetPort: 4455,
++      password: '',
++      steps: [
++        { action: 'preview-scene', value: '{{eventNow.title}}' },
++        { action: 'studio-transition', value: '' },
++        { action: 'wait', value: '1000' },
++        { action: 'preview-scene', value: '{{eventNext.title}}' },
++      ],
++    });
++  };
++
+   const handleAddNewOntimeAction = () => {
+     appendOutput({ type: 'ontime', action: 'aux1-start' });
+   };
+@@ -117,6 +134,10 @@ export default function AutomationForm({ automation, onClose }: AutomationFormPr
+       reportTest({ status: 'error', message: 'Fill in the target and address before testing' });
+       return;
+     }
++    if (isOBSOutput(values) && (!values.targetIP || !values.targetPort)) {
++      reportTest({ status: 'error', message: 'Fill in the OBS host and port before testing' });
++      return;
++    }
+     if (isHTTPOutput(values) && !values.url) {
+       reportTest({ status: 'error', message: 'Add a target URL before testing' });
+       return;
+@@ -174,6 +195,16 @@ export default function AutomationForm({ automation, onClose }: AutomationFormPr
+                 onClick: handleAddNewOSCOutput,
+               },
+             ]),
++        ...(isOntimeCloud
++          ? []
++          : [
++              {
++                type: 'item' as const,
++                label: 'OBS',
++                description: 'Run a sequence of steps in OBS Studio over its WebSocket',
++                onClick: handleAddNewOBSOutput,
++              },
++            ]),
+         {
+           type: 'item' as const,
+           label: 'HTTP',
+@@ -359,6 +390,27 @@ export default function AutomationForm({ automation, onClose }: AutomationFormPr
+                   </OutputCard>
+                 );
+               }
++              if (isOBSOutput(output)) {
++                return (
++                  <OutputCard
++                    key={output.id}
++                    label='OBS'
++                    kindClass={style.tagObs}
++                    summary={`${watch(`outputs.${index}.steps`)?.length ?? 0} steps`}
++                    unavailableReason={isOntimeCloud ? 'Unavailable in Ontime Cloud' : undefined}
++                    {...cardProps}
++                  >
++                    <ObsOutputForm
++                      index={index}
++                      control={control}
++                      register={register}
++                      setValue={setValue}
++                      watch={watch}
++                      rowErrors={rowErrors}
++                    />
++                  </OutputCard>
++                );
++              }
+               if (isOntimeAction(output)) {
+                 return (
+                   <OutputCard key={output.id} label='Ontime action' kindClass={style.tagOntime} {...cardProps}>
+diff --git a/apps/client/src/features/app-settings/panel/automations-panel/ObsOutputForm.tsx b/apps/client/src/features/app-settings/panel/automations-panel/ObsOutputForm.tsx
+new file mode 100644
+index 0000000..5ce9b67
+--- /dev/null
++++ b/apps/client/src/features/app-settings/panel/automations-panel/ObsOutputForm.tsx
+@@ -0,0 +1,147 @@
++import type { AutomationDTO, OBSStepAction } from 'ontime-types';
++import {
++  type Control,
++  type UseFormRegister,
++  type UseFormSetValue,
++  type UseFormWatch,
++  useFieldArray,
++} from 'react-hook-form';
++import { IoAdd, IoTrash } from 'react-icons/io5';
++
++import Button from '../../../../common/components/buttons/Button';
++import IconButton from '../../../../common/components/buttons/IconButton';
++import Input from '../../../../common/components/input/input/Input';
++import Select from '../../../../common/components/select/Select';
++import * as Panel from '../../panel-utils/PanelUtils';
++import type { OutputErrors } from './automationUtils';
++import TemplateInput from './template-input/TemplateInput';
++
++import style from './AutomationForm.module.scss';
++
++const stepOptions: { value: OBSStepAction; label: string; placeholder: string }[] = [
++  { value: 'preview-scene', label: 'Set preview scene', placeholder: '{{eventNow.title}}' },
++  { value: 'program-scene', label: 'Set program scene', placeholder: '{{eventNow.title}}' },
++  { value: 'transition', label: 'Set transition', placeholder: '{{eventNow.custom.transition}}' },
++  { value: 'transition-duration', label: 'Set transition duration (ms)', placeholder: '1000' },
++  { value: 'studio-transition', label: 'Take (studio mode transition)', placeholder: '' },
++  { value: 'wait', label: 'Wait (ms)', placeholder: '1000' },
++];
++
++interface ObsOutputFormProps {
++  index: number;
++  control: Control<AutomationDTO>;
++  register: UseFormRegister<AutomationDTO>;
++  setValue: UseFormSetValue<AutomationDTO>;
++  watch: UseFormWatch<AutomationDTO>;
++  rowErrors?: OutputErrors;
++}
++
++export default function ObsOutputForm({ index, control, register, setValue, watch, rowErrors }: ObsOutputFormProps) {
++  const {
++    fields: steps,
++    append,
++    remove,
++    move,
++  } = useFieldArray({
++    control,
++    name: `outputs.${index}.steps`,
++  });
++
++  return (
++    <>
++      <label>
++        OBS host
++        <Input
++          {...register(`outputs.${index}.targetIP`, { required: { value: true, message: 'Required field' } })}
++          fluid
++          placeholder='127.0.0.1'
++        />
++        <Panel.Error>{rowErrors?.targetIP?.message}</Panel.Error>
++      </label>
++      <label>
++        WebSocket port
++        <Input
++          {...register(`outputs.${index}.targetPort`, {
++            required: { value: true, message: 'Required field' },
++            setValueAs: (value) => (value === '' ? 0 : Number(value)),
++            max: { value: 65535, message: 'Port must be within range 1 - 65535' },
++            min: { value: 1, message: 'Port must be within range 1 - 65535' },
++          })}
++          fluid
++          type='number'
++          maxLength={5}
++          placeholder='4455'
++        />
++        <Panel.Error>{rowErrors?.targetPort?.message}</Panel.Error>
++      </label>
++      <label>
++        Password
++        <Input
++          {...register(`outputs.${index}.password`)}
++          fluid
++          type='password'
++          autoComplete='off'
++          placeholder='Leave empty without authentication'
++        />
++      </label>
++
++      <div className={style.spanFull}>
++        <Panel.Description>
++          Steps run in OBS one after the other. Steps whose value is empty are skipped.
++        </Panel.Description>
++      </div>
++
++      {steps.map((step, stepIndex) => {
++        const actionPath = `outputs.${index}.steps.${stepIndex}.action` as const;
++        const valuePath = `outputs.${index}.steps.${stepIndex}.value` as const;
++        const action = watch(actionPath);
++        const option = stepOptions.find((candidate) => candidate.value === action);
++        const needsValue = action !== 'studio-transition';
++
++        return (
++          <div key={step.id} className={`${style.spanFull} ${style.obsStep}`}>
++            <span className={style.obsStepIndex}>{stepIndex + 1}</span>
++            <Select<OBSStepAction>
++              value={action}
++              onValueChange={(value) => {
++                if (value === null) return;
++                setValue(actionPath, value, { shouldDirty: true });
++              }}
++              options={stepOptions.map(({ value, label }) => ({ value, label }))}
++              aria-label='OBS step'
++            />
++            {needsValue ? (
++              <TemplateInput
++                {...register(valuePath)}
++                value={watch(valuePath)}
++                fluid
++                placeholder={option?.placeholder}
++              />
++            ) : (
++              <span />
++            )}
++            <div className={style.obsStepButtons}>
++              <Button
++                variant='ghosted-white'
++                disabled={stepIndex === 0}
++                onClick={() => move(stepIndex, stepIndex - 1)}
++                aria-label='Move step up'
++              >
++                ↑
++              </Button>
++              <IconButton aria-label='Delete step' variant='ghosted-destructive' onClick={() => remove(stepIndex)}>
++                <IoTrash />
++              </IconButton>
++            </div>
++          </div>
++        );
++      })}
++
++      <div className={style.spanFull}>
++        <Button onClick={() => append({ action: 'preview-scene', value: '' })}>
++          Add step <IoAdd />
++        </Button>
++      </div>
++    </>
++  );
++}
+diff --git a/apps/server/src/api-data/automation/__tests__/obs.client.test.ts b/apps/server/src/api-data/automation/__tests__/obs.client.test.ts
+new file mode 100644
+index 0000000..c6e53bb
+--- /dev/null
++++ b/apps/server/src/api-data/automation/__tests__/obs.client.test.ts
+@@ -0,0 +1,195 @@
++import type { AddressInfo } from 'node:net';
++
++import { type OBSOutput, runtimeStorePlaceholder } from 'ontime-types';
++import { WebSocketServer } from 'ws';
++
++import * as logger from '../../logs/logs.service.js';
++import { parseOutput } from '../automation.validation.js';
++import { closeOBSConnections, emitOBS, makeAuthentication, toRequests } from '../clients/obs.client.js';
++
++vi.mock('../../logs/logs.service.js', () => ({ info: vi.fn(), warning: vi.fn(), error: vi.fn() }));
++
++const store = {
++  ...runtimeStorePlaceholder,
++  eventNow: { title: 'Kam 6', custom: { Uebergang: 'Überblende', Dauer: '5000' } },
++  eventNext: { title: 'Kam 1', custom: { Uebergang: '', Dauer: '' } },
++} as unknown as typeof runtimeStorePlaceholder;
++
++describe('toRequests()', () => {
++  it('maps steps to obs-websocket requests in order, resolving templates', () => {
++    const requests = toRequests(
++      [
++        { action: 'preview-scene', value: '{{eventNow.title}}' },
++        { action: 'transition', value: '{{eventNow.custom.Uebergang}}' },
++        { action: 'transition-duration', value: '{{eventNow.custom.Dauer}}' },
++        { action: 'studio-transition', value: '' },
++        { action: 'wait', value: '{{eventNow.custom.Dauer}}' },
++        { action: 'preview-scene', value: '{{eventNext.title}}' },
++      ],
++      store,
++    );
++
++    expect(requests).toStrictEqual([
++      { requestType: 'SetCurrentPreviewScene', requestData: { sceneName: 'Kam 6' } },
++      { requestType: 'SetCurrentSceneTransition', requestData: { transitionName: 'Überblende' } },
++      { requestType: 'SetCurrentSceneTransitionDuration', requestData: { transitionDuration: 5000 } },
++      { requestType: 'TriggerStudioModeTransition' },
++      { requestType: 'Sleep', requestData: { sleepMillis: 5000 } },
++      { requestType: 'SetCurrentPreviewScene', requestData: { sceneName: 'Kam 1' } },
++    ]);
++  });
++
++  it('skips steps whose value is empty or unresolved', () => {
++    const requests = toRequests(
++      [
++        { action: 'transition', value: '{{eventNext.custom.Uebergang}}' },
++        { action: 'transition-duration', value: '{{eventNext.custom.Dauer}}' },
++        { action: 'preview-scene', value: '{{eventNow.custom.doesNotExist}}' },
++        { action: 'wait', value: '0' },
++      ],
++      store,
++    );
++    expect(requests).toStrictEqual([]);
++  });
++
++  it('clamps the transition duration to the range OBS accepts', () => {
++    const requests = toRequests(
++      [
++        { action: 'transition-duration', value: '0' },
++        { action: 'transition-duration', value: '99999' },
++      ],
++      store,
++    );
++    expect(requests.map((request) => request.requestData?.transitionDuration)).toStrictEqual([50, 20000]);
++  });
++});
++
++describe('parseOutput() with OBS outputs', () => {
++  it('accepts a valid output and defaults optional fields', () => {
++    const result = parseOutput({
++      type: 'obs',
++      targetIP: '127.0.0.1',
++      targetPort: 4455,
++      steps: [{ action: 'studio-transition' }],
++    });
++    expect(result).toStrictEqual({
++      type: 'obs',
++      targetIP: '127.0.0.1',
++      targetPort: 4455,
++      password: '',
++      steps: [{ action: 'studio-transition', value: '' }],
++    });
++  });
++
++  it('rejects unknown actions and invalid targets', () => {
++    expect(() =>
++      parseOutput({ type: 'obs', targetIP: '127.0.0.1', targetPort: 4455, steps: [{ action: 'explode' }] }),
++    ).toThrow();
++    expect(() => parseOutput({ type: 'obs', targetIP: 'not a host', targetPort: 4455, steps: [] })).toThrow();
++    expect(() => parseOutput({ type: 'obs', targetIP: '127.0.0.1', targetPort: 70000, steps: [] })).toThrow();
++  });
++});
++
++describe('emitOBS() against a simulated obs-websocket server', () => {
++  const password = 'secret';
++  const salt = 'lM1GncleQOaCu9lT1yeUZhFYnqhsLLP1G5lAGo3ixaI=';
++  const challenge = '+IxH4CnCiqpX1rM9scsNynZzbOe4KhDeYcTNS3PDaeY=';
++
++  let server: WebSocketServer;
++  let port: number;
++  let received: { op: number; d: any }[];
++
++  beforeEach(async () => {
++    received = [];
++    server = new WebSocketServer({ port: 0 });
++    await new Promise<void>((resolve) => server.on('listening', () => resolve()));
++    port = (server.address() as AddressInfo).port;
++
++    server.on('connection', (socket, request) => {
++      expect(request.headers['sec-websocket-protocol']).toBe('obswebsocket.json');
++      socket.send(
++        JSON.stringify({
++          op: 0,
++          d: { obsWebSocketVersion: '5.7.6', rpcVersion: 1, authentication: { challenge, salt } },
++        }),
++      );
++      socket.on('message', (raw) => {
++        const message = JSON.parse(raw.toString());
++        received.push(message);
++        if (message.op === 1) {
++          if (message.d.authentication !== makeAuthentication(password, salt, challenge)) {
++            socket.close(4009, 'Authentication failed.');
++            return;
++          }
++          socket.send(JSON.stringify({ op: 2, d: { negotiatedRpcVersion: 1 } }));
++        }
++        if (message.op === 8) {
++          socket.send(
++            JSON.stringify({
++              op: 9,
++              d: {
++                requestId: message.d.requestId,
++                results: message.d.requests.map((r: { requestType: string }) => ({
++                  requestType: r.requestType,
++                  requestStatus: { result: true, code: 100 },
++                })),
++              },
++            }),
++          );
++        }
++      });
++    });
++  });
++
++  afterEach(async () => {
++    closeOBSConnections();
++    await new Promise<void>((resolve) => server.close(() => resolve()));
++    vi.mocked(logger.warning).mockClear();
++  });
++
++  const makeOutput = (overrides: Partial<OBSOutput> = {}): OBSOutput => ({
++    type: 'obs',
++    targetIP: '127.0.0.1',
++    targetPort: port,
++    password,
++    steps: [
++      { action: 'preview-scene', value: '{{eventNow.title}}' },
++      { action: 'transition', value: '{{eventNow.custom.Uebergang}}' },
++      { action: 'studio-transition', value: '' },
++    ],
++    ...overrides,
++  });
++
++  it('authenticates and sends the steps as one ordered batch', async () => {
++    emitOBS(makeOutput(), store);
++    await vi.waitFor(() => expect(received.some((m) => m.op === 8)).toBe(true));
++
++    const batch = received.find((m) => m.op === 8)!;
++    expect(batch.d.executionType).toBe(0); // SerialRealtime
++    expect(batch.d.haltOnFailure).toBe(false);
++    expect(batch.d.requests.map((r: { requestType: string }) => r.requestType)).toStrictEqual([
++      'SetCurrentPreviewScene',
++      'SetCurrentSceneTransition',
++      'TriggerStudioModeTransition',
++    ]);
++  });
++
++  it('reuses the connection for later sends', async () => {
++    emitOBS(makeOutput(), store);
++    await vi.waitFor(() => expect(received.filter((m) => m.op === 8)).toHaveLength(1));
++    emitOBS(makeOutput(), store);
++    await vi.waitFor(() => expect(received.filter((m) => m.op === 8)).toHaveLength(2));
++    expect(received.filter((m) => m.op === 1)).toHaveLength(1);
++  });
++
++  it('reports a wrong password', async () => {
++    emitOBS(makeOutput({ password: 'wrong' }), store);
++    await vi.waitFor(() =>
++      expect(logger.warning).toHaveBeenCalledWith(
++        expect.anything(),
++        'OBS send failed',
++        expect.objectContaining({ error: 'OBS authentication failed' }),
++      ),
++    );
++  });
++});
+diff --git a/apps/server/src/api-data/automation/automation.service.ts b/apps/server/src/api-data/automation/automation.service.ts
+index befec28..b2fc18f 100644
+--- a/apps/server/src/api-data/automation/automation.service.ts
++++ b/apps/server/src/api-data/automation/automation.service.ts
+@@ -6,6 +6,7 @@ import {
+   RuntimeStore,
+   TimerLifeCycle,
+   isHTTPOutput,
++  isOBSOutput,
+   isOSCOutput,
+   isOntimeAction,
+ } from 'ontime-types';
+@@ -17,6 +18,7 @@ import * as logger from '../logs/logs.service.js';
+ import { getAutomationTriggers, getAutomations, getAutomationsEnabled } from './automation.dao.js';
+ import { isContained, isEquivalent, isGreaterThan, isLessThan } from './automation.utils.js';
+ import { emitHTTP } from './clients/http.client.js';
++import { emitOBS } from './clients/obs.client.js';
+ import { toOntimeAction } from './clients/ontime.client.js';
+ import { emitOSC } from './clients/osc.client.js';
+ 
+@@ -89,9 +91,9 @@ export function testOutput(payload: AutomationOutput) {
+   send([payload].filter(isAvailable), store);
+ }
+ 
+-/** OSC is always disabled in Ontime Cloud */
++/** OSC and OBS target the local network and are always disabled in Ontime Cloud */
+ function isAvailable(output: AutomationOutput): boolean {
+-  return !(isOntimeCloud && isOSCOutput(output));
++  return !(isOntimeCloud && (isOSCOutput(output) || isOBSOutput(output)));
+ }
+ 
+ /**
+@@ -152,6 +154,8 @@ function send(output: AutomationOutput[], store: RuntimeStore) {
+       emitHTTP(payload, store);
+     } else if (isOntimeAction(payload)) {
+       toOntimeAction(payload, store);
++    } else if (isOBSOutput(payload)) {
++      emitOBS(payload, store);
+     } else {
+       logger.warning(LogOrigin.Automation, 'Automation output skipped', { reason: 'unknown-type' });
+     }
+diff --git a/apps/server/src/api-data/automation/automation.validation.ts b/apps/server/src/api-data/automation/automation.validation.ts
+index 88a58fc..b772db3 100644
+--- a/apps/server/src/api-data/automation/automation.validation.ts
++++ b/apps/server/src/api-data/automation/automation.validation.ts
+@@ -6,9 +6,12 @@ import {
+   AutomationFilter,
+   AutomationOutput,
+   HTTPOutput,
++  OBSOutput,
++  OBSStep,
+   OSCOutput,
+   OntimeAction,
+   SecondarySource,
++  obsStepActions,
+   timerLifecycleValues,
+ } from 'ontime-types';
+ 
+@@ -119,6 +122,8 @@ export function parseOutput(maybeOutput: unknown): AutomationOutput {
+     return parseHTTPOutput(maybeOutput);
+   } else if (type === 'ontime') {
+     return parseOntimeAction(maybeOutput);
++  } else if (type === 'obs') {
++    return parseOBSOutput(maybeOutput);
+   } else {
+     throw new Error('Invalid automation output');
+   }
+@@ -153,6 +158,57 @@ function parseOSCOutput(maybeOSCOutput: object): OSCOutput {
+   };
+ }
+ 
++function parseOBSOutput(maybeOBSOutput: object): OBSOutput {
++  assert.hasKeys(maybeOBSOutput, ['targetIP', 'targetPort', 'steps']);
++  assert.isString(maybeOBSOutput.targetIP);
++  assert.isNumber(maybeOBSOutput.targetPort);
++  assert.isArray(maybeOBSOutput.steps);
++
++  const targetIP = maybeOBSOutput.targetIP.trim();
++  const target = replaceTemplatesForValidation(targetIP, 'template.local');
++  if (isIP(target) !== 4 && !isHostname(target)) {
++    throw new Error('Invalid OBS target');
++  }
++  if (
++    !Number.isInteger(maybeOBSOutput.targetPort) ||
++    maybeOBSOutput.targetPort < 1 ||
++    maybeOBSOutput.targetPort > 65535
++  ) {
++    throw new Error('Invalid OBS port');
++  }
++
++  // the password is optional, OBS can run without authentication
++  let password = '';
++  if ('password' in maybeOBSOutput && maybeOBSOutput.password !== undefined) {
++    assert.isString(maybeOBSOutput.password);
++    password = maybeOBSOutput.password;
++  }
++
++  const steps: OBSStep[] = maybeOBSOutput.steps.map((maybeStep) => {
++    assert.isObject(maybeStep);
++    assert.hasKeys(maybeStep, ['action']);
++    assert.isString(maybeStep.action);
++    const action = maybeStep.action;
++    if (!(obsStepActions as readonly string[]).includes(action)) {
++      throw new Error(`Invalid OBS step: unknown action ${action}`);
++    }
++    let value = '';
++    if ('value' in maybeStep && maybeStep.value !== undefined) {
++      assert.isString(maybeStep.value);
++      value = maybeStep.value;
++    }
++    return { action: action as OBSStep['action'], value };
++  });
++
++  return {
++    type: 'obs',
++    targetIP,
++    targetPort: maybeOBSOutput.targetPort,
++    password,
++    steps,
++  };
++}
++
+ function parseHTTPOutput(maybeHTTPOutput: object): HTTPOutput {
+   assert.hasKeys(maybeHTTPOutput, ['url']);
+   assert.isString(maybeHTTPOutput.url);
+diff --git a/apps/server/src/api-data/automation/clients/obs.client.ts b/apps/server/src/api-data/automation/clients/obs.client.ts
+new file mode 100644
+index 0000000..44b54d7
+--- /dev/null
++++ b/apps/server/src/api-data/automation/clients/obs.client.ts
+@@ -0,0 +1,291 @@
++import { createHash, randomUUID } from 'node:crypto';
++
++import { LogOrigin, OBSOutput, OBSStep, RuntimeStore } from 'ontime-types';
++import { getErrorMessage } from 'ontime-utils';
++import { DeepReadonly } from 'ts-essentials';
++import { WebSocket } from 'ws';
++
++import * as logger from '../../logs/logs.service.js';
++import { parseTemplateNested } from '../automation.utils.js';
++import { reportSendFailure, reportSendSuccess } from './sendFailures.js';
++
++/**
++ * Minimal client for obs-websocket v5
++ * https://github.com/obsproject/obs-websocket/blob/master/docs/generated/protocol.md
++ *
++ * Each OBS output is sent as one request batch, executed by OBS in order (SerialRealtime)
++ * This guarantees that eg: setting the preview, the transition and taking happen in sequence
++ */
++
++const enum OpCode {
++  Hello = 0,
++  Identify = 1,
++  Identified = 2,
++  RequestBatch = 8,
++  RequestBatchResponse = 9,
++}
++
++/** obs-websocket RequestBatchExecutionType.SerialRealtime */
++const serialRealtime = 0;
++const connectTimeoutMs = 3000;
++const batchTimeoutMs = 60_000;
++
++/** OBS limits for SetCurrentSceneTransitionDuration */
++const minTransitionDuration = 50;
++const maxTransitionDuration = 20_000;
++/** OBS limit for the Sleep request */
++const maxSleep = 50_000;
++
++type OBSRequest = { requestType: string; requestData?: Record<string, unknown> };
++
++type BatchResult = {
++  requestType: string;
++  requestStatus: { result: boolean; code: number; comment?: string };
++};
++
++type PendingBatch = {
++  resolve: (results: BatchResult[]) => void;
++  reject: (error: Error) => void;
++  timeout: NodeJS.Timeout;
++};
++
++type Connection = {
++  socket: WebSocket;
++  ready: Promise<void>;
++  pending: Map<string, PendingBatch>;
++};
++
++/** one connection per OBS instance, opened on the first send */
++const connections = new Map<string, Connection>();
++
++/**
++ * Expose possibility to send an ordered list of requests to OBS
++ */
++export function emitOBS(output: OBSOutput, store: DeepReadonly<RuntimeStore>) {
++  const targetIP = parseTemplateNested(output.targetIP, store).trim();
++  const target = `${targetIP}:${output.targetPort}`;
++  const requests = toRequests(output.steps, store, target);
++
++  if (requests.length === 0) {
++    logger.info(LogOrigin.Automation, 'OBS output skipped', { reason: 'no-steps', target });
++    return;
++  }
++
++  void sendBatch(targetIP, output.targetPort, output.password, requests)
++    .then((results) => {
++      const failed = results.filter((result) => !result.requestStatus.result);
++      if (failed.length === 0) {
++        reportSendSuccess(target);
++        return;
++      }
++      // a failed step does not stop the others, we report the problems to the user
++      failed.forEach((result) => {
++        logger.warning(LogOrigin.Automation, 'OBS request failed', {
++          target,
++          request: result.requestType,
++          error: result.requestStatus.comment ?? String(result.requestStatus.code),
++        });
++      });
++    })
++    .catch((error) => {
++      reportSendFailure(target, 'OBS send failed', { error: getErrorMessage(error) });
++    });
++}
++
++/**
++ * Converts the user steps into obs-websocket requests
++ * Steps whose value resolves empty are skipped, eg: an event without a transition in its custom field
++ */
++export function toRequests(steps: OBSStep[], store: DeepReadonly<RuntimeStore>, target = ''): OBSRequest[] {
++  const requests: OBSRequest[] = [];
++
++  for (const step of steps) {
++    const value = resolveValue(step.value, store);
++
++    switch (step.action) {
++      case 'preview-scene':
++        if (value) requests.push({ requestType: 'SetCurrentPreviewScene', requestData: { sceneName: value } });
++        else logSkipped(step, target);
++        break;
++      case 'program-scene':
++        if (value) requests.push({ requestType: 'SetCurrentProgramScene', requestData: { sceneName: value } });
++        else logSkipped(step, target);
++        break;
++      case 'transition':
++        if (value) {
++          requests.push({ requestType: 'SetCurrentSceneTransition', requestData: { transitionName: value } });
++        } else logSkipped(step, target);
++        break;
++      case 'transition-duration': {
++        const duration = toMilliseconds(value);
++        if (duration === null) {
++          logSkipped(step, target);
++          break;
++        }
++        // a cut ignores the duration, so we clamp rather than letting OBS reject the request
++        const clamped = Math.min(Math.max(duration, minTransitionDuration), maxTransitionDuration);
++        requests.push({
++          requestType: 'SetCurrentSceneTransitionDuration',
++          requestData: { transitionDuration: clamped },
++        });
++        break;
++      }
++      case 'studio-transition':
++        requests.push({ requestType: 'TriggerStudioModeTransition' });
++        break;
++      case 'wait': {
++        const sleep = toMilliseconds(value);
++        if (sleep === null || sleep === 0) {
++          logSkipped(step, target);
++          break;
++        }
++        requests.push({ requestType: 'Sleep', requestData: { sleepMillis: Math.min(sleep, maxSleep) } });
++        break;
++      }
++      default:
++        step.action satisfies never;
++    }
++  }
++
++  return requests;
++}
++
++/** resolves templates, a template which could not be resolved is treated as empty */
++function resolveValue(template: string, store: DeepReadonly<RuntimeStore>): string {
++  const value = parseTemplateNested(template, store).trim();
++  if (value.includes('{{')) {
++    return '';
++  }
++  return value;
++}
++
++function toMilliseconds(value: string): number | null {
++  if (value === '') return null;
++  const number = Number(value);
++  if (!Number.isFinite(number) || number < 0) return null;
++  return Math.round(number);
++}
++
++function logSkipped(step: OBSStep, target: string) {
++  logger.info(LogOrigin.Automation, 'OBS step skipped', { reason: 'empty-value', action: step.action, target });
++}
++
++/**
++ * Sends a request batch, opening the connection if needed
++ */
++async function sendBatch(host: string, port: number, password: string, requests: OBSRequest[]) {
++  const connection = getConnection(host, port, password);
++  await connection.ready;
++
++  const requestId = randomUUID();
++  return new Promise<BatchResult[]>((resolve, reject) => {
++    const timeout = setTimeout(() => {
++      connection.pending.delete(requestId);
++      reject(new Error('OBS did not answer the request'));
++    }, batchTimeoutMs);
++    connection.pending.set(requestId, { resolve, reject, timeout });
++
++    connection.socket.send(
++      JSON.stringify({
++        op: OpCode.RequestBatch,
++        d: { requestId, haltOnFailure: false, executionType: serialRealtime, requests },
++      }),
++    );
++  });
++}
++
++function getConnection(host: string, port: number, password: string): Connection {
++  const key = `${host}:${port}:${password}`;
++  const existing = connections.get(key);
++  if (existing && existing.socket.readyState <= WebSocket.OPEN) {
++    return existing;
++  }
++
++  const socket = new WebSocket(`ws://${host}:${port}`, 'obswebsocket.json');
++  const pending = new Map<string, PendingBatch>();
++
++  const ready = new Promise<void>((resolve, reject) => {
++    const timeout = setTimeout(() => {
++      reject(new Error('Timed out connecting to OBS'));
++      socket.terminate();
++    }, connectTimeoutMs);
++
++    socket.on('message', (raw) => {
++      let message: { op: number; d: Record<string, any> };
++      try {
++        message = JSON.parse(raw.toString());
++      } catch {
++        return;
++      }
++
++      switch (message.op) {
++        case OpCode.Hello: {
++          const auth = message.d.authentication as { challenge: string; salt: string } | undefined;
++          const identify: Record<string, unknown> = { rpcVersion: 1, eventSubscriptions: 0 };
++          if (auth) {
++            identify.authentication = makeAuthentication(password, auth.salt, auth.challenge);
++          }
++          socket.send(JSON.stringify({ op: OpCode.Identify, d: identify }));
++          break;
++        }
++        case OpCode.Identified:
++          clearTimeout(timeout);
++          resolve();
++          break;
++        case OpCode.RequestBatchResponse: {
++          const batch = pending.get(message.d.requestId);
++          if (batch) {
++            clearTimeout(batch.timeout);
++            pending.delete(message.d.requestId);
++            batch.resolve(message.d.results ?? []);
++          }
++          break;
++        }
++      }
++    });
++
++    socket.on('error', (error) => {
++      clearTimeout(timeout);
++      reject(error);
++    });
++
++    socket.on('close', (code, reason) => {
++      clearTimeout(timeout);
++      connections.delete(key);
++      // 4009 is obs-websocket's authentication failed
++      const message = code === 4009 ? 'OBS authentication failed' : `OBS closed the connection (${code} ${reason})`;
++      reject(new Error(message));
++      pending.forEach((batch) => {
++        clearTimeout(batch.timeout);
++        batch.reject(new Error(message));
++      });
++      pending.clear();
++    });
++  });
++
++  // avoid unhandled rejections when nobody is waiting on the connection
++  ready.catch(() => {});
++
++  const connection = { socket, ready, pending };
++  connections.set(key, connection);
++  return connection;
++}
++
++/**
++ * Authentication string as defined by obs-websocket v5
++ * base64(sha256(base64(sha256(password + salt)) + challenge))
++ */
++export function makeAuthentication(password: string, salt: string, challenge: string): string {
++  const secret = createHash('sha256')
++    .update(password + salt)
++    .digest('base64');
++  return createHash('sha256')
++    .update(secret + challenge)
++    .digest('base64');
++}
++
++/** closes all open connections, used on shutdown and in tests */
++export function closeOBSConnections() {
++  connections.forEach((connection) => connection.socket.terminate());
++  connections.clear();
++}
+diff --git a/packages/types/src/definitions/core/Automation.type.ts b/packages/types/src/definitions/core/Automation.type.ts
+index c67768b..1a00059 100644
+--- a/packages/types/src/definitions/core/Automation.type.ts
++++ b/packages/types/src/definitions/core/Automation.type.ts
+@@ -39,7 +39,7 @@ export type AutomationFilter = {
+   value: string; // we use string but would coerce to the field value
+ };
+ 
+-export type AutomationOutput = OSCOutput | HTTPOutput | OntimeAction;
++export type AutomationOutput = OSCOutput | HTTPOutput | OntimeAction | OBSOutput;
+ 
+ export type OSCOutput = {
+   type: 'osc';
+@@ -54,6 +54,35 @@ export type HTTPOutput = {
+   url: string;
+ };
+ 
++export const obsStepActions = [
++  'preview-scene',
++  'program-scene',
++  'transition',
++  'transition-duration',
++  'studio-transition',
++  'wait',
++] as const;
++
++export type OBSStepAction = (typeof obsStepActions)[number];
++
++export type OBSStep = {
++  action: OBSStepAction;
++  /** scene name, transition name or time in milliseconds, depending on the action. Accepts templates */
++  value: string;
++};
++
++/**
++ * Sends an ordered list of requests to OBS Studio over obs-websocket (v5)
++ * The steps are executed in order, as a single request batch
++ */
++export type OBSOutput = {
++  type: 'obs';
++  targetIP: string;
++  targetPort: number;
++  password: string;
++  steps: OBSStep[];
++};
++
+ const ontimeAuxTriggerAction = [
+   'aux1-start',
+   'aux1-stop',
+diff --git a/packages/types/src/index.ts b/packages/types/src/index.ts
+index 659321d..d4fdf73 100644
+--- a/packages/types/src/index.ts
++++ b/packages/types/src/index.ts
+@@ -27,7 +27,7 @@ export type { Day, Duration, Instant, TimeOfDay } from './definitions/core/Tempo
+ export type { OntimeReport, OntimeEventReport, ReportData, ShowReport } from './definitions/core/Report.type.js';
+ 
+ // ---> Automations
+-export { ontimeActionKeyValues } from './definitions/core/Automation.type.js';
++export { obsStepActions, ontimeActionKeyValues } from './definitions/core/Automation.type.js';
+ export type {
+   OntimeActionKey,
+   Automation,
+@@ -38,6 +38,9 @@ export type {
+   FilterRule,
+   HTTPOutput,
+   NormalisedAutomation,
++  OBSOutput,
++  OBSStep,
++  OBSStepAction,
+   OntimeAction,
+   OSCOutput,
+   Trigger,
+@@ -154,6 +157,7 @@ export {
+   isKeyOfType,
+   isOSCOutput,
+   isHTTPOutput,
++  isOBSOutput,
+   isOntimeAction,
+   isTimerLifeCycle,
+ } from './utils/guards.js';
+diff --git a/packages/types/src/utils/guards.ts b/packages/types/src/utils/guards.ts
+index f67b11b..516d7a2 100644
+--- a/packages/types/src/utils/guards.ts
++++ b/packages/types/src/utils/guards.ts
+@@ -1,4 +1,10 @@
+-import type { AutomationOutput, HTTPOutput, OSCOutput, OntimeAction } from '../definitions/core/Automation.type.js';
++import type {
++  AutomationOutput,
++  HTTPOutput,
++  OBSOutput,
++  OSCOutput,
++  OntimeAction,
++} from '../definitions/core/Automation.type.js';
+ import type {
+   OntimeDelay,
+   OntimeEntry,
+@@ -46,6 +52,10 @@ export function isHTTPOutput(output: AutomationOutput): output is HTTPOutput {
+   return output.type === 'http';
+ }
+ 
++export function isOBSOutput(output: AutomationOutput): output is OBSOutput {
++  return output.type === 'obs';
++}
++
+ export function isOntimeAction(output: AutomationOutput): output is OntimeAction {
+   return output.type === 'ontime';
+ }
