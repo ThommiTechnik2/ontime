@@ -7,7 +7,7 @@ import { WebSocket } from 'ws';
 
 import * as logger from '../../logs/logs.service.js';
 import { parseTemplateNested } from '../automation.utils.js';
-import { reportSendFailure, reportSendSuccess } from './sendFailures.js';
+import { reportSendSuccess } from './sendFailures.js';
 
 /**
  * Minimal client for obs-websocket v5
@@ -71,10 +71,16 @@ export function emitOBS(output: OBSOutput, store: DeepReadonly<RuntimeStore>) {
     return;
   }
 
+  logger.info(LogOrigin.Automation, 'OBS batch sending', {
+    target,
+    steps: requests.map((request) => request.requestType).join(' > '),
+  });
+
   void sendBatch(targetIP, output.targetPort, output.password, requests)
     .then((results) => {
       const failed = results.filter((result) => !result.requestStatus.result);
       if (failed.length === 0) {
+        logger.info(LogOrigin.Automation, 'OBS batch done', { target, steps: results.length });
         reportSendSuccess(target);
         return;
       }
@@ -88,7 +94,8 @@ export function emitOBS(output: OBSOutput, store: DeepReadonly<RuntimeStore>) {
       });
     })
     .catch((error) => {
-      reportSendFailure(target, 'OBS send failed', { error: getErrorMessage(error) });
+      // OBS outputs fire on discrete events, we report every failure to make problems visible
+      logger.warning(LogOrigin.Automation, 'OBS send failed', { target, error: getErrorMessage(error) });
     });
 }
 
@@ -230,6 +237,7 @@ function getConnection(host: string, port: number, password: string): Connection
         }
         case OpCode.Identified:
           clearTimeout(timeout);
+          logger.info(LogOrigin.Automation, 'OBS connected', { target: `${host}:${port}` });
           resolve();
           break;
         case OpCode.RequestBatchResponse: {
@@ -246,6 +254,10 @@ function getConnection(host: string, port: number, password: string): Connection
 
     socket.on('error', (error) => {
       clearTimeout(timeout);
+      logger.warning(LogOrigin.Automation, 'OBS connection error', {
+        target: `${host}:${port}`,
+        error: getErrorMessage(error),
+      });
       reject(error);
     });
 
