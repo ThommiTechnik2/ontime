@@ -50,7 +50,7 @@ export default defineConfig({
     }),
   ],
   server: {
-    port: 3000,
+    port: 3100,
     proxy: {
       '^/login*': {
         target: 'http://localhost:4001/',
