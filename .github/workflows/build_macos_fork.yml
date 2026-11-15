@@ -1,0 +1,67 @@
+# Builds an unsigned macOS app of this fork, without Apple certificates.
+# The DMGs are attached to the workflow run as an artifact.
+name: macOS build (fork)
+
+on:
+  push:
+    branches: [main, feature/obs-output]
+  workflow_dispatch:
+
+concurrency:
+  group: macos-fork-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build_macos:
+    runs-on: macos-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version-file: '.nvmrc'
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Get pnpm store directory
+        run: echo "PNPM_STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v5
+        with:
+          path: ${{ env.PNPM_STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build client and server
+        run: pnpm build
+
+      # ad-hoc signed ("-"), no notarisation and no hardened runtime, as we have no Apple certificates
+      - name: Electron - Build unsigned app
+        working-directory: apps/electron
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: >
+          pnpm exec electron-builder --publish=never --mac --arm64 --x64
+          -c.mac.notarize=false
+          -c.mac.identity=-
+          -c.mac.hardenedRuntime=false
+
+      - name: Short commit id
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Upload macOS build
+        uses: actions/upload-artifact@v6
+        with:
+          name: ontime-macos-${{ github.ref_name == 'main' && 'main' || 'obs-output' }}-${{ env.SHORT_SHA }}
+          path: |
+            ./apps/electron/dist/ontime-macOS-arm64.dmg
+            ./apps/electron/dist/ontime-macOS-x64.dmg
+          retention-days: 14
