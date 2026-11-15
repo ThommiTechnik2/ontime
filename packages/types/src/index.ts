@@ -27,7 +27,7 @@ export type { Day, Duration, Instant, TimeOfDay } from './definitions/core/Tempo
 export type { OntimeReport, OntimeEventReport, ReportData, ShowReport } from './definitions/core/Report.type.js';
 
 // ---> Automations
-export { ontimeActionKeyValues } from './definitions/core/Automation.type.js';
+export { obsStepActions, ontimeActionKeyValues } from './definitions/core/Automation.type.js';
 export type {
   OntimeActionKey,
   Automation,
@@ -38,6 +38,9 @@ export type {
   FilterRule,
   HTTPOutput,
   NormalisedAutomation,
+  OBSOutput,
+  OBSStep,
+  OBSStepAction,
   OntimeAction,
   OSCOutput,
   Trigger,
@@ -154,6 +157,7 @@ export {
   isKeyOfType,
   isOSCOutput,
   isHTTPOutput,
+  isOBSOutput,
   isOntimeAction,
   isTimerLifeCycle,
 } from './utils/guards.js';

@@ -4,6 +4,7 @@ const outputLabels: Record<AutomationOutput['type'], string> = {
   osc: 'OSC',
   http: 'HTTP',
   ontime: 'Ontime',
+  obs: 'OBS',
 };
 
 export type OutputSummary = {
@@ -19,7 +20,7 @@ export function summariseOutputs(outputs: AutomationOutput[]): OutputSummary[] {
     counts.set(output.type, (counts.get(output.type) ?? 0) + 1);
   }
 
-  const order: AutomationOutput['type'][] = ['osc', 'http', 'ontime'];
+  const order: AutomationOutput['type'][] = ['osc', 'http', 'obs', 'ontime'];
   return order
     .filter((type) => counts.has(type))
     .map((type) => ({ type, label: outputLabels[type], count: counts.get(type) as number }));

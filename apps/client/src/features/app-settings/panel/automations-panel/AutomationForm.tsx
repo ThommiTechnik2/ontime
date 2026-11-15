@@ -1,4 +1,4 @@
-import { Automation, AutomationDTO, isHTTPOutput, isOSCOutput, isOntimeAction } from 'ontime-types';
+import { Automation, AutomationDTO, isHTTPOutput, isOBSOutput, isOSCOutput, isOntimeAction } from 'ontime-types';
 import { useEffect, useMemo, useState } from 'react';
 import { useFieldArray, useForm } from 'react-hook-form';
 import { IoAdd, IoTrash } from 'react-icons/io5';
@@ -20,6 +20,7 @@ import { isOntimeCloud } from '../../../../externals';
 import * as Panel from '../../panel-utils/PanelUtils';
 import { isAutomation, makeFieldList, operators, type OutputErrors } from './automationUtils';
 import HttpOutputForm from './HttpOutputForm';
+import ObsOutputForm from './ObsOutputForm';
 import OntimeActionForm from './OntimeActionForm';
 import OscOutputForm from './OscOutputForm';
 import OutputCard, { type TestState } from './OutputCard';
@@ -102,6 +103,22 @@ export default function AutomationForm({ automation, onClose }: AutomationFormPr
     appendOutput({ type: 'http', url: '' });
   };
 
+  const handleAddNewOBSOutput = () => {
+    // a common studio mode sequence, the user can adjust the steps
+    appendOutput({
+      type: 'obs',
+      targetIP: '127.0.0.1',
+      targetPort: 4455,
+      password: '',
+      steps: [
+        { action: 'preview-scene', value: '{{eventNow.title}}' },
+        { action: 'studio-transition', value: '' },
+        { action: 'wait', value: '1000' },
+        { action: 'preview-scene', value: '{{eventNext.title}}' },
+      ],
+    });
+  };
+
   const handleAddNewOntimeAction = () => {
     appendOutput({ type: 'ontime', action: 'aux1-start' });
   };
@@ -115,6 +132,10 @@ export default function AutomationForm({ automation, onClose }: AutomationFormPr
 
     if (isOSCOutput(values) && (!values.targetIP || !values.targetPort || !values.address)) {
       reportTest({ status: 'error', message: 'Fill in the target and address before testing' });
+      return;
+    }
+    if (isOBSOutput(values) && (!values.targetIP || !values.targetPort)) {
+      reportTest({ status: 'error', message: 'Fill in the OBS host and port before testing' });
       return;
     }
     if (isHTTPOutput(values) && !values.url) {
@@ -172,6 +193,16 @@ export default function AutomationForm({ automation, onClose }: AutomationFormPr
                 label: 'OSC',
                 description: 'Send an OSC message to a device on the network',
                 onClick: handleAddNewOSCOutput,
+              },
+            ]),
+        ...(isOntimeCloud
+          ? []
+          : [
+              {
+                type: 'item' as const,
+                label: 'OBS',
+                description: 'Run a sequence of steps in OBS Studio over its WebSocket',
+                onClick: handleAddNewOBSOutput,
               },
             ]),
         {
@@ -356,6 +387,27 @@ export default function AutomationForm({ automation, onClose }: AutomationFormPr
                 return (
                   <OutputCard key={output.id} label='HTTP' kindClass={style.tagHttp} {...cardProps}>
                     <HttpOutputForm index={index} output={output} register={register} rowErrors={rowErrors} />
+                  </OutputCard>
+                );
+              }
+              if (isOBSOutput(output)) {
+                return (
+                  <OutputCard
+                    key={output.id}
+                    label='OBS'
+                    kindClass={style.tagObs}
+                    summary={`${watch(`outputs.${index}.steps`)?.length ?? 0} steps`}
+                    unavailableReason={isOntimeCloud ? 'Unavailable in Ontime Cloud' : undefined}
+                    {...cardProps}
+                  >
+                    <ObsOutputForm
+                      index={index}
+                      control={control}
+                      register={register}
+                      setValue={setValue}
+                      watch={watch}
+                      rowErrors={rowErrors}
+                    />
                   </OutputCard>
                 );
               }
