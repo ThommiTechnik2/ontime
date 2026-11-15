@@ -6,9 +6,12 @@ import {
   AutomationFilter,
   AutomationOutput,
   HTTPOutput,
+  OBSOutput,
+  OBSStep,
   OSCOutput,
   OntimeAction,
   SecondarySource,
+  obsStepActions,
   timerLifecycleValues,
 } from 'ontime-types';
 
@@ -119,6 +122,8 @@ export function parseOutput(maybeOutput: unknown): AutomationOutput {
     return parseHTTPOutput(maybeOutput);
   } else if (type === 'ontime') {
     return parseOntimeAction(maybeOutput);
+  } else if (type === 'obs') {
+    return parseOBSOutput(maybeOutput);
   } else {
     throw new Error('Invalid automation output');
   }
@@ -150,6 +155,57 @@ function parseOSCOutput(maybeOSCOutput: object): OSCOutput {
     targetPort: maybeOSCOutput.targetPort,
     address: maybeOSCOutput.address,
     args: maybeOSCOutput.args,
+  };
+}
+
+function parseOBSOutput(maybeOBSOutput: object): OBSOutput {
+  assert.hasKeys(maybeOBSOutput, ['targetIP', 'targetPort', 'steps']);
+  assert.isString(maybeOBSOutput.targetIP);
+  assert.isNumber(maybeOBSOutput.targetPort);
+  assert.isArray(maybeOBSOutput.steps);
+
+  const targetIP = maybeOBSOutput.targetIP.trim();
+  const target = replaceTemplatesForValidation(targetIP, 'template.local');
+  if (isIP(target) !== 4 && !isHostname(target)) {
+    throw new Error('Invalid OBS target');
+  }
+  if (
+    !Number.isInteger(maybeOBSOutput.targetPort) ||
+    maybeOBSOutput.targetPort < 1 ||
+    maybeOBSOutput.targetPort > 65535
+  ) {
+    throw new Error('Invalid OBS port');
+  }
+
+  // the password is optional, OBS can run without authentication
+  let password = '';
+  if ('password' in maybeOBSOutput && maybeOBSOutput.password !== undefined) {
+    assert.isString(maybeOBSOutput.password);
+    password = maybeOBSOutput.password;
+  }
+
+  const steps: OBSStep[] = maybeOBSOutput.steps.map((maybeStep) => {
+    assert.isObject(maybeStep);
+    assert.hasKeys(maybeStep, ['action']);
+    assert.isString(maybeStep.action);
+    const action = maybeStep.action;
+    if (!(obsStepActions as readonly string[]).includes(action)) {
+      throw new Error(`Invalid OBS step: unknown action ${action}`);
+    }
+    let value = '';
+    if ('value' in maybeStep && maybeStep.value !== undefined) {
+      assert.isString(maybeStep.value);
+      value = maybeStep.value;
+    }
+    return { action: action as OBSStep['action'], value };
+  });
+
+  return {
+    type: 'obs',
+    targetIP,
+    targetPort: maybeOBSOutput.targetPort,
+    password,
+    steps,
   };
 }
 

@@ -6,6 +6,7 @@ import {
   RuntimeStore,
   TimerLifeCycle,
   isHTTPOutput,
+  isOBSOutput,
   isOSCOutput,
   isOntimeAction,
 } from 'ontime-types';
@@ -17,6 +18,7 @@ import * as logger from '../logs/logs.service.js';
 import { getAutomationTriggers, getAutomations, getAutomationsEnabled } from './automation.dao.js';
 import { isContained, isEquivalent, isGreaterThan, isLessThan } from './automation.utils.js';
 import { emitHTTP } from './clients/http.client.js';
+import { emitOBS } from './clients/obs.client.js';
 import { toOntimeAction } from './clients/ontime.client.js';
 import { emitOSC } from './clients/osc.client.js';
 
@@ -89,9 +91,9 @@ export function testOutput(payload: AutomationOutput) {
   send([payload].filter(isAvailable), store);
 }
 
-/** OSC is always disabled in Ontime Cloud */
+/** OSC and OBS target the local network and are always disabled in Ontime Cloud */
 function isAvailable(output: AutomationOutput): boolean {
-  return !(isOntimeCloud && isOSCOutput(output));
+  return !(isOntimeCloud && (isOSCOutput(output) || isOBSOutput(output)));
 }
 
 /**
@@ -152,6 +154,8 @@ function send(output: AutomationOutput[], store: RuntimeStore) {
       emitHTTP(payload, store);
     } else if (isOntimeAction(payload)) {
       toOntimeAction(payload, store);
+    } else if (isOBSOutput(payload)) {
+      emitOBS(payload, store);
     } else {
       logger.warning(LogOrigin.Automation, 'Automation output skipped', { reason: 'unknown-type' });
     }

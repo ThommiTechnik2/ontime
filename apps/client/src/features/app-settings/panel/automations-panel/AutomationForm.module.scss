@@ -132,6 +132,28 @@
   color: $green-300;
 }
 
+.tagObs {
+  background-color: $orange-1000;
+  color: $orange-300;
+}
+
+.obsStep {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(13rem, 1fr) minmax(13rem, 1.5fr) auto;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.obsStepIndex {
+  color: $label-gray;
+  text-align: right;
+}
+
+.obsStepButtons {
+  display: flex;
+  gap: 0.25rem;
+}
+
 .tagOntime {
   background-color: $gray-1000;
   color: $gray-200;

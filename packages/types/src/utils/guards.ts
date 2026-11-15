@@ -1,4 +1,10 @@
-import type { AutomationOutput, HTTPOutput, OSCOutput, OntimeAction } from '../definitions/core/Automation.type.js';
+import type {
+  AutomationOutput,
+  HTTPOutput,
+  OBSOutput,
+  OSCOutput,
+  OntimeAction,
+} from '../definitions/core/Automation.type.js';
 import type {
   OntimeDelay,
   OntimeEntry,
@@ -44,6 +50,10 @@ export function isOSCOutput(output: AutomationOutput): output is OSCOutput {
 
 export function isHTTPOutput(output: AutomationOutput): output is HTTPOutput {
   return output.type === 'http';
+}
+
+export function isOBSOutput(output: AutomationOutput): output is OBSOutput {
+  return output.type === 'obs';
 }
 
 export function isOntimeAction(output: AutomationOutput): output is OntimeAction {

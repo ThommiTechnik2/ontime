@@ -39,7 +39,7 @@ export type AutomationFilter = {
   value: string; // we use string but would coerce to the field value
 };
 
-export type AutomationOutput = OSCOutput | HTTPOutput | OntimeAction;
+export type AutomationOutput = OSCOutput | HTTPOutput | OntimeAction | OBSOutput;
 
 export type OSCOutput = {
   type: 'osc';
@@ -52,6 +52,35 @@ export type OSCOutput = {
 export type HTTPOutput = {
   type: 'http';
   url: string;
+};
+
+export const obsStepActions = [
+  'preview-scene',
+  'program-scene',
+  'transition',
+  'transition-duration',
+  'studio-transition',
+  'wait',
+] as const;
+
+export type OBSStepAction = (typeof obsStepActions)[number];
+
+export type OBSStep = {
+  action: OBSStepAction;
+  /** scene name, transition name or time in milliseconds, depending on the action. Accepts templates */
+  value: string;
+};
+
+/**
+ * Sends an ordered list of requests to OBS Studio over obs-websocket (v5)
+ * The steps are executed in order, as a single request batch
+ */
+export type OBSOutput = {
+  type: 'obs';
+  targetIP: string;
+  targetPort: number;
+  password: string;
+  steps: OBSStep[];
 };
 
 const ontimeAuxTriggerAction = [
