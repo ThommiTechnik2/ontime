@@ -4,7 +4,7 @@ name: macOS build (fork)
 
 on:
   push:
-    branches: [main, feature/obs-output]
+    branches: [master, feature/obs-output]
   workflow_dispatch:
 
 concurrency:
@@ -60,7 +60,7 @@ jobs:
       - name: Upload macOS build
         uses: actions/upload-artifact@v6
         with:
-          name: ontime-macos-${{ github.ref_name == 'main' && 'main' || 'obs-output' }}-${{ env.SHORT_SHA }}
+          name: ontime-macos-${{ github.ref_name == 'master' && 'master' || 'obs-output' }}-${{ env.SHORT_SHA }}
           path: |
             ./apps/electron/dist/ontime-macOS-arm64.dmg
             ./apps/electron/dist/ontime-macOS-x64.dmg
