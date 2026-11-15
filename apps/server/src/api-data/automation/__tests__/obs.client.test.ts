@@ -33,6 +33,7 @@ describe('toRequests()', () => {
       { requestType: 'SetCurrentPreviewScene', requestData: { sceneName: 'Kam 6' } },
       { requestType: 'SetCurrentSceneTransition', requestData: { transitionName: 'Überblende' } },
       { requestType: 'SetCurrentSceneTransitionDuration', requestData: { transitionDuration: 5000 } },
+      { requestType: 'Sleep', requestData: { sleepMillis: 100 } },
       { requestType: 'TriggerStudioModeTransition' },
       { requestType: 'Sleep', requestData: { sleepMillis: 5000 } },
       { requestType: 'SetCurrentPreviewScene', requestData: { sceneName: 'Kam 1' } },
@@ -50,6 +51,21 @@ describe('toRequests()', () => {
       store,
     );
     expect(requests).toStrictEqual([]);
+  });
+
+  it('lets OBS settle before a take, unless the user already waits', () => {
+    expect(toRequests([{ action: 'studio-transition', value: '' }], store)).toStrictEqual([
+      { requestType: 'TriggerStudioModeTransition' },
+    ]);
+    const types = toRequests(
+      [
+        { action: 'preview-scene', value: 'Kam 1' },
+        { action: 'wait', value: '500' },
+        { action: 'studio-transition', value: '' },
+      ],
+      store,
+    ).map((request) => request.requestType);
+    expect(types).toStrictEqual(['SetCurrentPreviewScene', 'Sleep', 'TriggerStudioModeTransition']);
   });
 
   it('clamps the transition duration to the range OBS accepts', () => {
@@ -170,6 +186,7 @@ describe('emitOBS() against a simulated obs-websocket server', () => {
     expect(batch.d.requests.map((r: { requestType: string }) => r.requestType)).toStrictEqual([
       'SetCurrentPreviewScene',
       'SetCurrentSceneTransition',
+      'Sleep',
       'TriggerStudioModeTransition',
     ]);
   });

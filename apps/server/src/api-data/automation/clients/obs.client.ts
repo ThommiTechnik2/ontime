@@ -35,6 +35,11 @@ const minTransitionDuration = 50;
 const maxTransitionDuration = 20_000;
 /** OBS limit for the Sleep request */
 const maxSleep = 50_000;
+/**
+ * OBS applies preview and transition changes asynchronously on its UI thread
+ * a take sent immediately after them would transition the previous preview
+ */
+const settleBeforeTakeMs = 100;
 
 type OBSRequest = { requestType: string; requestData?: Record<string, unknown> };
 
@@ -137,9 +142,14 @@ export function toRequests(steps: OBSStep[], store: DeepReadonly<RuntimeStore>, 
         });
         break;
       }
-      case 'studio-transition':
+      case 'studio-transition': {
+        const previous = requests.at(-1);
+        if (previous && previous.requestType !== 'Sleep') {
+          requests.push({ requestType: 'Sleep', requestData: { sleepMillis: settleBeforeTakeMs } });
+        }
         requests.push({ requestType: 'TriggerStudioModeTransition' });
         break;
+      }
       case 'wait': {
         const sleep = toMilliseconds(value);
         if (sleep === null || sleep === 0) {
