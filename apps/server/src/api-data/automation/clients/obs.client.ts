@@ -1,10 +1,11 @@
 import { createHash, randomUUID } from 'node:crypto';
 
-import { LogOrigin, OBSOutput, OBSStep, RuntimeStore } from 'ontime-types';
+import { LogOrigin, OBSOutput, OBSStep, Playback, RuntimeStore } from 'ontime-types';
 import { getErrorMessage } from 'ontime-utils';
 import { DeepReadonly } from 'ts-essentials';
 import { WebSocket } from 'ws';
 
+import { getState } from '../../../stores/runtimeState.js';
 import * as logger from '../../logs/logs.service.js';
 import { parseTemplateNested } from '../automation.utils.js';
 import { reportSendSuccess } from './sendFailures.js';
@@ -40,8 +41,27 @@ const maxSleep = 50_000;
  * a take sent immediately after them would transition the previous preview
  */
 const settleBeforeTakeMs = 100;
+/** how often we check the running timer while waiting for a time left */
+const remainingPollMs = 10;
 
 type OBSRequest = { requestType: string; requestData?: Record<string, unknown> };
+
+/**
+ * A part of the steps, sent as one batch
+ * untilRemaining holds the time left in the running event to wait for before sending
+ */
+type OBSPhase = { untilRemaining: number | null; requests: OBSRequest[] };
+
+type WaitToken = { cancelled: boolean; continueNow: boolean };
+
+type WaitingSequence = { token: WaitToken; nextId: string | null; done: Promise<void>; finished: boolean };
+
+/**
+ * The last sequence with a wait for time left, per OBS instance
+ * - when the event it waits for starts, it is completed right away and the new sequence runs after it
+ * - otherwise, a new sequence with a wait replaces it
+ */
+const waitingSequences = new Map<string, WaitingSequence>();
 
 type BatchResult = {
   requestType: string;
@@ -69,39 +89,162 @@ const connections = new Map<string, Connection>();
 export function emitOBS(output: OBSOutput, store: DeepReadonly<RuntimeStore>) {
   const targetIP = parseTemplateNested(output.targetIP, store).trim();
   const target = `${targetIP}:${output.targetPort}`;
-  const requests = toRequests(output.steps, store, target);
+  const plan = toPlan(output.steps, store, target);
 
-  if (requests.length === 0) {
+  if (plan.every((phase) => phase.requests.length === 0)) {
     logger.info(LogOrigin.Automation, 'OBS output skipped', { reason: 'no-steps', target });
     return;
   }
 
+  // the event which was running when the output fired, waits refer to its time left
+  const context = { eventId: store.eventNow?.id ?? null, nextId: store.eventNext?.id ?? null };
+
+  const hasWait = plan.some((phase) => phase.untilRemaining !== null);
+  const destination = { host: targetIP, port: output.targetPort, password: output.password, target };
+
+  // a previous sequence may still be waiting to take into the event which starts now
+  let after: Promise<void> = Promise.resolve();
+  const previous = waitingSequences.get(target);
+  if (previous && !previous.finished) {
+    if (context.eventId !== null && context.eventId === previous.nextId) {
+      previous.token.continueNow = true;
+      after = previous.done;
+    } else if (hasWait) {
+      previous.token.cancelled = true;
+    }
+  }
+
+  const token: WaitToken = { cancelled: false, continueNow: false };
+  const sequence: WaitingSequence = { token, nextId: context.nextId, done: Promise.resolve(), finished: false };
+  sequence.done = after
+    .then(() => runPlan(plan, destination, context, token))
+    .finally(() => {
+      sequence.finished = true;
+    });
+
+  if (hasWait) {
+    waitingSequences.set(target, sequence);
+  }
+}
+
+type Destination = { host: string; port: number; password: string; target: string };
+
+async function runPlan(
+  plan: OBSPhase[],
+  destination: Destination,
+  context: { eventId: string | null; nextId: string | null },
+  token: WaitToken,
+) {
+  const { target } = destination;
+  for (const phase of plan) {
+    if (phase.untilRemaining !== null) {
+      // waiting for the end of an event only makes sense if another event follows
+      if (!context.eventId || !context.nextId) {
+        logger.info(LogOrigin.Automation, 'OBS sequence stopped', { reason: 'no-next-event', target });
+        return;
+      }
+      const outcome = await waitForRemaining(phase.untilRemaining, context.eventId, context.nextId, token);
+      if (outcome === 'cancel') {
+        logger.info(LogOrigin.Automation, 'OBS sequence stopped', { reason: 'playback-changed', target });
+        return;
+      }
+    }
+
+    if (phase.requests.length === 0) continue;
+    const sent = await sendAndReport(phase.requests, destination);
+    if (!sent) return;
+  }
+}
+
+/**
+ * Resolves once the running event has at most the given time left
+ * - waits while paused
+ * - continues if playback already moved on to the next event, eg: for cuts at the end of an event
+ * - cancels if playback stopped or jumped to another event
+ */
+function waitForRemaining(
+  threshold: number,
+  eventId: string,
+  nextId: string,
+  token: WaitToken,
+): Promise<'continue' | 'cancel'> {
+  return new Promise((resolve) => {
+    const check = () => {
+      if (token.cancelled) return 'cancel';
+      if (token.continueNow) return 'continue';
+      const { eventNow, timer } = getState();
+      if (eventNow?.id === nextId) return 'continue';
+      if (eventNow?.id !== eventId || timer.playback === Playback.Stop) return 'cancel';
+      const isRunning = timer.playback === Playback.Play || timer.playback === Playback.Roll;
+      if (isRunning && timer.current !== null && timer.current <= threshold) return 'continue';
+      return null;
+    };
+
+    const immediate = check();
+    if (immediate) {
+      resolve(immediate);
+      return;
+    }
+    const interval = setInterval(() => {
+      const outcome = check();
+      if (outcome) {
+        clearInterval(interval);
+        resolve(outcome);
+      }
+    }, remainingPollMs);
+  });
+}
+
+/** sends one batch and logs the outcome, returns whether OBS could be reached */
+async function sendAndReport(requests: OBSRequest[], destination: Destination): Promise<boolean> {
+  const { target } = destination;
   logger.info(LogOrigin.Automation, 'OBS batch sending', {
     target,
     steps: requests.map((request) => request.requestType).join(' > '),
   });
 
-  void sendBatch(targetIP, output.targetPort, output.password, requests)
-    .then((results) => {
-      const failed = results.filter((result) => !result.requestStatus.result);
-      if (failed.length === 0) {
-        logger.info(LogOrigin.Automation, 'OBS batch done', { target, steps: results.length });
-        reportSendSuccess(target);
-        return;
-      }
-      // a failed step does not stop the others, we report the problems to the user
-      failed.forEach((result) => {
-        logger.warning(LogOrigin.Automation, 'OBS request failed', {
-          target,
-          request: result.requestType,
-          error: result.requestStatus.comment ?? String(result.requestStatus.code),
-        });
+  try {
+    const results = await sendBatch(destination.host, destination.port, destination.password, requests);
+    const failed = results.filter((result) => !result.requestStatus.result);
+    if (failed.length === 0) {
+      logger.info(LogOrigin.Automation, 'OBS batch done', { target, steps: results.length });
+      reportSendSuccess(target);
+      return true;
+    }
+    // a failed step does not stop the others, we report the problems to the user
+    failed.forEach((result) => {
+      logger.warning(LogOrigin.Automation, 'OBS request failed', {
+        target,
+        request: result.requestType,
+        error: result.requestStatus.comment ?? String(result.requestStatus.code),
       });
-    })
-    .catch((error) => {
-      // OBS outputs fire on discrete events, we report every failure to make problems visible
-      logger.warning(LogOrigin.Automation, 'OBS send failed', { target, error: getErrorMessage(error) });
     });
+    return true;
+  } catch (error) {
+    // OBS outputs fire on discrete events, we report every failure to make problems visible
+    logger.warning(LogOrigin.Automation, 'OBS send failed', { target, error: getErrorMessage(error) });
+    return false;
+  }
+}
+
+/**
+ * Splits the steps at each "wait until time left" into phases
+ * An empty time left waits for the end of the event, eg: a cut
+ */
+export function toPlan(steps: OBSStep[], store: DeepReadonly<RuntimeStore>, target = ''): OBSPhase[] {
+  const groups: { untilRemaining: number | null; steps: OBSStep[] }[] = [{ untilRemaining: null, steps: [] }];
+  for (const step of steps) {
+    if (step.action === 'wait-until-remaining') {
+      const threshold = toMilliseconds(resolveValue(step.value, store)) ?? 0;
+      groups.push({ untilRemaining: threshold, steps: [] });
+    } else {
+      groups.at(-1)!.steps.push(step);
+    }
+  }
+  return groups.map((group) => ({
+    untilRemaining: group.untilRemaining,
+    requests: toRequests(group.steps, store, target),
+  }));
 }
 
 /**
@@ -159,6 +302,9 @@ export function toRequests(steps: OBSStep[], store: DeepReadonly<RuntimeStore>, 
         requests.push({ requestType: 'Sleep', requestData: { sleepMillis: Math.min(sleep, maxSleep) } });
         break;
       }
+      case 'wait-until-remaining':
+        // handled by toPlan, which splits the steps around it
+        break;
       default:
         step.action satisfies never;
     }
@@ -308,6 +454,8 @@ export function makeAuthentication(password: string, salt: string, challenge: st
 
 /** closes all open connections, used on shutdown and in tests */
 export function closeOBSConnections() {
+  waitingSequences.forEach((sequence) => (sequence.token.cancelled = true));
+  waitingSequences.clear();
   connections.forEach((connection) => connection.socket.terminate());
   connections.clear();
 }

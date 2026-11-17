@@ -3,16 +3,26 @@ import type { AddressInfo } from 'node:net';
 import { type OBSOutput, runtimeStorePlaceholder } from 'ontime-types';
 import { WebSocketServer } from 'ws';
 
+import * as runtimeState from '../../../stores/runtimeState.js';
 import * as logger from '../../logs/logs.service.js';
 import { parseOutput } from '../automation.validation.js';
-import { closeOBSConnections, emitOBS, makeAuthentication, toRequests } from '../clients/obs.client.js';
+import { closeOBSConnections, emitOBS, makeAuthentication, toPlan, toRequests } from '../clients/obs.client.js';
 
 vi.mock('../../logs/logs.service.js', () => ({ info: vi.fn(), warning: vi.fn(), error: vi.fn() }));
+vi.mock('../../../stores/runtimeState.js', () => ({ getState: vi.fn() }));
+
+/** the running timer, as the wait reads it from the runtime state */
+function setRuntime(eventId: string | null, current: number | null, playback = 'play') {
+  vi.mocked(runtimeState.getState).mockReturnValue({
+    eventNow: eventId ? { id: eventId } : null,
+    timer: { current, playback },
+  } as unknown as ReturnType<typeof runtimeState.getState>);
+}
 
 const store = {
   ...runtimeStorePlaceholder,
-  eventNow: { title: 'Kam 6', custom: { Uebergang: 'Überblende', Dauer: '5000' } },
-  eventNext: { title: 'Kam 1', custom: { Uebergang: '', Dauer: '' } },
+  eventNow: { id: 'now', title: 'Kam 6', custom: { Uebergang: 'Überblende', Dauer: '5000' } },
+  eventNext: { id: 'next', title: 'Kam 1', custom: { Uebergang: '', Dauer: '' } },
 } as unknown as typeof runtimeStorePlaceholder;
 
 describe('toRequests()', () => {
@@ -77,6 +87,31 @@ describe('toRequests()', () => {
       store,
     );
     expect(requests.map((request) => request.requestData?.transitionDuration)).toStrictEqual([50, 20000]);
+  });
+});
+
+describe('toPlan()', () => {
+  it('splits the steps at each wait for time left', () => {
+    const plan = toPlan(
+      [
+        { action: 'preview-scene', value: '{{eventNext.title}}' },
+        { action: 'wait-until-remaining', value: '{{eventNow.custom.Dauer}}' },
+        { action: 'studio-transition', value: '' },
+      ],
+      store,
+    );
+    expect(plan).toStrictEqual([
+      {
+        untilRemaining: null,
+        requests: [{ requestType: 'SetCurrentPreviewScene', requestData: { sceneName: 'Kam 1' } }],
+      },
+      { untilRemaining: 5000, requests: [{ requestType: 'TriggerStudioModeTransition' }] },
+    ]);
+  });
+
+  it('waits for the end of the event when the time left is empty', () => {
+    const plan = toPlan([{ action: 'wait-until-remaining', value: '{{eventNext.custom.Dauer}}' }], store);
+    expect(plan.at(-1)?.untilRemaining).toBe(0);
   });
 });
 
@@ -197,6 +232,78 @@ describe('emitOBS() against a simulated obs-websocket server', () => {
     emitOBS(makeOutput(), store);
     await vi.waitFor(() => expect(received.filter((m) => m.op === 8)).toHaveLength(2));
     expect(received.filter((m) => m.op === 1)).toHaveLength(1);
+  });
+
+  describe('waiting for the time left in the running event', () => {
+    const takeOutput = () =>
+      makeOutput({
+        steps: [
+          { action: 'preview-scene', value: '{{eventNext.title}}' },
+          { action: 'wait-until-remaining', value: '2000' },
+          { action: 'studio-transition', value: '' },
+        ],
+      });
+    const batches = () => received.filter((m) => m.op === 8);
+
+    it('sends the take once the event has the given time left', async () => {
+      setRuntime('now', 5000);
+      emitOBS(takeOutput(), store);
+      await vi.waitFor(() => expect(batches()).toHaveLength(1));
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(batches()).toHaveLength(1);
+
+      setRuntime('now', 1990);
+      await vi.waitFor(() => expect(batches()).toHaveLength(2));
+      expect(batches()[1].d.requests.map((r: { requestType: string }) => r.requestType)).toStrictEqual([
+        'TriggerStudioModeTransition',
+      ]);
+    });
+
+    it('keeps waiting while paused', async () => {
+      setRuntime('now', 1000, 'pause');
+      emitOBS(takeOutput(), store);
+      await vi.waitFor(() => expect(batches()).toHaveLength(1));
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(batches()).toHaveLength(1);
+      setRuntime('now', 1000, 'play');
+      await vi.waitFor(() => expect(batches()).toHaveLength(2));
+    });
+
+    it('takes when playback already moved on to the next event, eg: a cut', async () => {
+      setRuntime('now', 5000);
+      emitOBS(takeOutput(), store);
+      await vi.waitFor(() => expect(batches()).toHaveLength(1));
+      setRuntime('next', 10000);
+      await vi.waitFor(() => expect(batches()).toHaveLength(2));
+    });
+
+    it('completes a waiting take before the sequence of the event which starts, eg: a cut', async () => {
+      setRuntime('now', 5000);
+      emitOBS(takeOutput(), store);
+      await vi.waitFor(() => expect(batches()).toHaveLength(1));
+
+      // the next event starts and fires its own sequence before the wait noticed it
+      const nextStore = {
+        ...store,
+        eventNow: { ...store.eventNow, id: 'next', title: 'Kam 1' },
+        eventNext: { ...store.eventNext, id: 'after', title: 'Kam 3' },
+      } as typeof store;
+      emitOBS(takeOutput(), nextStore);
+
+      await vi.waitFor(() => expect(batches()).toHaveLength(3));
+      const types = batches().map((batch) => batch.d.requests.map((r: { requestType: string }) => r.requestType));
+      expect(types[1]).toStrictEqual(['TriggerStudioModeTransition']);
+      expect(batches()[2].d.requests[0].requestData).toStrictEqual({ sceneName: 'Kam 3' });
+    });
+
+    it('drops the take when playback stops or jumps elsewhere', async () => {
+      setRuntime('now', 5000);
+      emitOBS(takeOutput(), store);
+      await vi.waitFor(() => expect(batches()).toHaveLength(1));
+      setRuntime('somewhere-else', 1000);
+      await new Promise((resolve) => setTimeout(resolve, 60));
+      expect(batches()).toHaveLength(1);
+    });
   });
 
   it('reports a wrong password', async () => {

@@ -61,6 +61,7 @@ export const obsStepActions = [
   'transition-duration',
   'studio-transition',
   'wait',
+  'wait-until-remaining',
 ] as const;
 
 export type OBSStepAction = (typeof obsStepActions)[number];

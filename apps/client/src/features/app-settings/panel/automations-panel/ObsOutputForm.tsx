@@ -25,6 +25,11 @@ const stepOptions: { value: OBSStepAction; label: string; placeholder: string }[
   { value: 'transition-duration', label: 'Set transition duration (ms)', placeholder: '1000' },
   { value: 'studio-transition', label: 'Take (studio mode transition)', placeholder: '' },
   { value: 'wait', label: 'Wait (ms)', placeholder: '1000' },
+  {
+    value: 'wait-until-remaining',
+    label: 'Wait until time left in event (ms)',
+    placeholder: '{{eventNext.custom.transitionDuration}}',
+  },
 ];
 
 interface ObsOutputFormProps {
@@ -87,7 +92,10 @@ export default function ObsOutputForm({ index, control, register, setValue, watc
 
       <div className={style.spanFull}>
         <Panel.Description>
-          Steps run in OBS one after the other. Steps whose value is empty are skipped.
+          Steps run in OBS one after the other. Steps whose value is empty are skipped. Use &quot;Wait until time
+          left&quot; to finish a transition exactly at the end of the running event: the following steps wait until the
+          event has that much time left, eg: the duration of the next transition. An empty value waits for the end of
+          the event.
         </Panel.Description>
       </div>
 
