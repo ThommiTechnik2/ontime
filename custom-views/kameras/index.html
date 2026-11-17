@@ -1,0 +1,713 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>Kameras</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        --window-seconds: 30;
+        --bg: #000;
+        --row-bg: #2a2a2a;
+        --row-gap: 4px;
+        --text: #f2f2f2;
+        --muted: #9a9a9a;
+        --note: #ffe873;
+        --onair: #e10600;
+        --block-width: 4.2rem;
+        --font: system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      html,
+      body {
+        margin: 0;
+        height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+        overflow: hidden;
+        -webkit-user-select: none;
+        user-select: none;
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+          env(safe-area-inset-left);
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.6rem 1rem;
+        background: #1c1c1c;
+        border-bottom: 1px solid #333;
+      }
+
+      .group-index {
+        font-size: 1.6rem;
+        color: var(--muted);
+        min-width: 2rem;
+        text-align: center;
+      }
+
+      .group-title {
+        font-size: 1.1rem;
+      }
+
+      .group-subtitle {
+        font-size: 0.85rem;
+        color: var(--muted);
+      }
+
+      .connection {
+        margin-left: auto;
+        width: 0.8rem;
+        height: 0.8rem;
+        border-radius: 50%;
+        background: #c00;
+      }
+
+      .connection.ok {
+        background: #1ed41e;
+      }
+
+      .list {
+        flex: 1 1 auto;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        gap: var(--row-gap);
+        padding: var(--row-gap) 0;
+      }
+
+      .list.mine {
+        flex: 0 1 40%;
+        border-top: 1px solid #333;
+      }
+
+      .row {
+        position: relative;
+        display: flex;
+        align-items: stretch;
+        min-height: 3.6rem;
+        background: var(--row-bg);
+        overflow: hidden;
+        flex: 0 0 auto;
+      }
+
+      .row.current {
+        outline: 2px solid var(--onair);
+        outline-offset: -2px;
+      }
+
+      .index {
+        flex: 0 0 2.6rem;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--muted);
+        font-size: 1rem;
+        background: var(--bg);
+      }
+
+      .camera {
+        flex: 0 0 var(--block-width);
+        width: var(--block-width);
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 2rem;
+        font-weight: 700;
+        border-radius: 0.6rem 0 0 0.6rem;
+        cursor: pointer;
+      }
+
+      .camera.text-label {
+        font-size: 0.9rem;
+        padding: 0 0.3rem;
+        display: block;
+        line-height: 3.6rem;
+        text-align: center;
+      }
+
+      .track {
+        position: relative;
+        flex: 1 1 auto;
+        overflow: hidden;
+      }
+
+      .bar {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: 0;
+        width: 0;
+        will-change: transform;
+      }
+
+      .text {
+        position: relative;
+        padding: 0.35rem 0.6rem;
+        line-height: 1.25;
+        pointer-events: none;
+        text-shadow: 0 0 3px #000;
+      }
+
+      .duration {
+        font-size: 0.95rem;
+      }
+
+      .transition {
+        margin-left: 1rem;
+        color: var(--note);
+      }
+
+      .until {
+        margin-left: 1.5rem;
+        color: var(--muted);
+      }
+
+      .description {
+        font-size: 1.1rem;
+      }
+
+      .title {
+        font-size: 0.95rem;
+        color: var(--note);
+      }
+
+      .onair {
+        flex: 0 0 auto;
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        height: 2.8rem;
+        padding: 0 1rem;
+        background: var(--onair);
+      }
+
+      .onair-camera {
+        font-size: 2rem;
+        font-weight: 700;
+        min-width: 2.5rem;
+        max-width: 40%;
+        overflow: hidden;
+        white-space: nowrap;
+        text-overflow: ellipsis;
+        text-align: center;
+      }
+
+      .onair-progress {
+        flex: 1 1 auto;
+        height: 1.4rem;
+        background: rgb(0 0 0 / 0.25);
+      }
+
+      .onair-progress div {
+        height: 100%;
+        width: 0;
+        background: #e6e6e6;
+      }
+
+      .onair-remaining {
+        font-size: 1.3rem;
+        font-variant-numeric: tabular-nums;
+        min-width: 4rem;
+        text-align: right;
+      }
+
+      footer {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        padding: 0.5rem 1rem;
+        background: #111;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .clock {
+        font-size: 1.4rem;
+      }
+
+      .state {
+        color: var(--muted);
+      }
+
+      .hint {
+        margin-left: auto;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+
+      .empty {
+        padding: 2rem 1rem;
+        color: var(--muted);
+        text-align: center;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="group-index" id="group-index"></div>
+      <div>
+        <div class="group-title" id="group-title">Kameras</div>
+        <div class="group-subtitle" id="group-subtitle"></div>
+      </div>
+      <div class="connection" id="connection" title="Verbindung zu Ontime"></div>
+    </header>
+
+    <section class="list" id="sequence"></section>
+
+    <section class="onair" id="onair">
+      <div class="onair-camera" id="onair-camera">–</div>
+      <div class="onair-progress"><div id="onair-progress"></div></div>
+      <div class="onair-remaining" id="onair-remaining"></div>
+    </section>
+
+    <section class="list mine" id="mine" hidden></section>
+
+    <footer>
+      <div class="clock" id="clock">--:--:--</div>
+      <div class="state" id="state"></div>
+      <div class="hint" id="hint">Kamera antippen, um ihre Einsätze unten zu sehen</div>
+    </footer>
+
+    <script>
+      /**
+       * Kameras: a timeline view for camera operators
+       * - the camera number is read from the event title, eg: "Kam 6" -> 6
+       * - the shot description comes from the event note
+       * - colours come from the event colour in Ontime
+       * - a transition (custom fields Uebergang + Dauer) ends at the start of its event: the incoming camera
+       *   fades in before its event starts, the outgoing camera fades out over the end of its own event
+       * - bars move from right to left over a window of WINDOW_SECONDS
+       */
+      const WINDOW_MS = Number(getComputedStyle(document.documentElement).getPropertyValue('--window-seconds')) * 1000;
+      const MAX_ROWS = 24;
+      /** keys of the custom fields in Ontime */
+      const TRANSITION_FIELD = 'Uebergang';
+      const TRANSITION_DURATION_FIELD = 'Dauer';
+      /** transitions drawn with hard edges */
+      const CUT_NAMES = ['', 'schnitt', 'cut'];
+
+      const stageHash = getStageHash();
+      const baseUrl = `${window.location.origin}${stageHash}`;
+      const socketUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}${stageHash}/ws`;
+
+      const state = {
+        events: [], // playable events, in rundown order
+        groups: new Map(), // event id -> parent group
+        runtime: {},
+        timerReceivedAt: performance.now(),
+        selectedCamera: readSelectedCamera(),
+        renderedKey: '',
+      };
+
+      const elements = {
+        sequence: document.getElementById('sequence'),
+        mine: document.getElementById('mine'),
+        onairCamera: document.getElementById('onair-camera'),
+        onairProgress: document.getElementById('onair-progress'),
+        onairRemaining: document.getElementById('onair-remaining'),
+        clock: document.getElementById('clock'),
+        state: document.getElementById('state'),
+        hint: document.getElementById('hint'),
+        connection: document.getElementById('connection'),
+        groupIndex: document.getElementById('group-index'),
+        groupTitle: document.getElementById('group-title'),
+        groupSubtitle: document.getElementById('group-subtitle'),
+      };
+
+      /** rows currently on screen, with what we need to move their bars */
+      let rows = [];
+
+      fetchRundown();
+      connectSocket();
+      requestAnimationFrame(animate);
+
+      // --- data ---------------------------------------------------------
+
+      async function fetchRundown() {
+        try {
+          const response = await fetch(`${baseUrl}/data/rundowns/current`);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const rundown = await response.json();
+          parseRundown(rundown);
+        } catch (error) {
+          console.error('Kameras: could not load the rundown', error);
+          setTimeout(fetchRundown, 2000);
+        }
+      }
+
+      function parseRundown(rundown) {
+        const events = [];
+        const groups = new Map();
+        for (const id of rundown.flatOrder ?? []) {
+          const entry = rundown.entries?.[id];
+          if (!entry || entry.type !== 'event' || entry.skip) continue;
+          events.push(entry);
+          if (entry.parent && rundown.entries[entry.parent]) {
+            groups.set(entry.id, rundown.entries[entry.parent]);
+          }
+        }
+        state.events = events;
+        state.groups = groups;
+        state.rundownTitle = rundown.title ?? '';
+        state.renderedKey = '';
+      }
+
+      function connectSocket() {
+        const socket = new WebSocket(socketUrl);
+
+        socket.onopen = () => {
+          elements.connection.classList.add('ok');
+          // the rundown may have changed while we were offline
+          fetchRundown();
+        };
+
+        socket.onclose = () => {
+          elements.connection.classList.remove('ok');
+          setTimeout(connectSocket, 1000);
+        };
+
+        socket.onmessage = (message) => {
+          let data;
+          try {
+            data = JSON.parse(message.data);
+          } catch {
+            return;
+          }
+          if (data.tag === 'runtime-data') {
+            if ('timer' in data.payload) state.timerReceivedAt = performance.now();
+            if ('clock' in data.payload) state.clockReceivedAt = performance.now();
+            state.runtime = { ...state.runtime, ...data.payload };
+          } else if (data.tag === 'refetch') {
+            const target = data.payload?.target;
+            if (target === 'rundown' || target === 'all' || target === 'project-rundowns') {
+              fetchRundown();
+            }
+          }
+        };
+      }
+
+      // --- timing -------------------------------------------------------
+
+      /** remaining time of the running event, interpolated between server updates */
+      function getRemaining() {
+        const timer = state.runtime.timer;
+        if (!timer || timer.current === null || timer.current === undefined) return null;
+        if (timer.playback !== 'play') return timer.current;
+        return timer.current - (performance.now() - state.timerReceivedAt);
+      }
+
+      /**
+       * Builds the list of shots to show, with their start time relative to now
+       * Starts are derived from the remaining time of the current event and the durations after it
+       */
+      function getTimeline() {
+        const events = state.events;
+        const nowId = state.runtime.eventNow?.id;
+        let index = events.findIndex((event) => event.id === nowId);
+        const isRunning = index !== -1;
+
+        const timeline = [];
+        let cursor = 0;
+
+        if (isRunning) {
+          const current = events[index];
+          const duration = state.runtime.timer?.duration ?? current.duration;
+          const remaining = getRemaining() ?? duration;
+          timeline.push({ event: current, start: remaining - duration, duration, current: true });
+          cursor = Math.max(remaining, 0);
+          index += 1;
+        } else {
+          index = 0;
+        }
+
+        for (; index < events.length && timeline.length < MAX_ROWS * 2; index++) {
+          const event = events[index];
+          timeline.push({ event, start: cursor, duration: event.duration, current: false });
+          cursor += event.duration;
+        }
+
+        // the incoming camera fades in over the end of the previous event
+        timeline.forEach((item, position) => {
+          item.rampIn = getTransitionMs(item.event);
+          const next = timeline[position + 1]?.event ?? events[events.indexOf(item.event) + 1];
+          item.rampOut = next ? getTransitionMs(next) : 0;
+        });
+        return timeline;
+      }
+
+      // --- rendering ----------------------------------------------------
+
+      function animate() {
+        const timeline = getTimeline();
+        const key = timeline.map((item) => item.event.id).join('|') + `#${state.selectedCamera}`;
+        if (key !== state.renderedKey) {
+          render(timeline);
+          state.renderedKey = key;
+        }
+        updateBars(timeline);
+        updateOnAir(timeline);
+        updateFooter();
+        requestAnimationFrame(animate);
+      }
+
+      function render(timeline) {
+        rows = [];
+        elements.sequence.replaceChildren();
+        elements.mine.replaceChildren();
+
+        if (timeline.length === 0) {
+          const empty = document.createElement('div');
+          empty.className = 'empty';
+          empty.textContent = 'Keine Events im Rundown';
+          elements.sequence.append(empty);
+        }
+
+        timeline.slice(0, MAX_ROWS).forEach((item) => {
+          elements.sequence.append(createRow(item, false));
+        });
+
+        const showMine = state.selectedCamera !== null;
+        elements.mine.hidden = !showMine;
+        elements.hint.textContent = showMine
+          ? `Unten: Einsätze von Kamera ${state.selectedCamera} · nochmals antippen zum Ausblenden`
+          : 'Kamera antippen, um ihre Einsätze unten zu sehen';
+
+        if (showMine) {
+          const mine = timeline.filter((item) => !item.current && getCamera(item.event) === state.selectedCamera);
+          if (mine.length === 0) {
+            const empty = document.createElement('div');
+            empty.className = 'empty';
+            empty.textContent = `Keine weiteren Einsätze für Kamera ${state.selectedCamera}`;
+            elements.mine.append(empty);
+          }
+          mine.slice(0, MAX_ROWS).forEach((item) => elements.mine.append(createRow(item, true)));
+        }
+
+        updateHeader(timeline);
+      }
+
+      function createRow(item, showUntil) {
+        const { event } = item;
+        const colour = event.colour || '#5a5a5a';
+
+        const row = document.createElement('div');
+        row.className = item.current ? 'row current' : 'row';
+
+        const index = document.createElement('div');
+        index.className = 'index';
+        index.textContent = event.cue ?? '';
+
+        const camera = document.createElement('div');
+        camera.className = 'camera';
+        camera.style.background = colour;
+        camera.style.color = getContrastColour(colour);
+        camera.textContent = getCamera(event) ?? '?';
+        if (!/^\d+$/.test(camera.textContent)) camera.classList.add('text-label');
+        camera.addEventListener('click', () => toggleCamera(getCamera(event)));
+
+        const track = document.createElement('div');
+        track.className = 'track';
+
+        const bar = document.createElement('div');
+        bar.className = 'bar';
+        bar.style.background = makeBarGradient(colour, item);
+
+        const text = document.createElement('div');
+        text.className = 'text';
+
+        const duration = document.createElement('div');
+        duration.className = 'duration';
+        duration.textContent = formatSeconds(item.duration);
+        if (item.rampIn > 0) {
+          const transition = document.createElement('span');
+          transition.className = 'transition';
+          transition.textContent = `${event.custom[TRANSITION_FIELD].trim()} ${formatSeconds(item.rampIn)}`;
+          duration.append(transition);
+        }
+        let until = null;
+        if (showUntil) {
+          until = document.createElement('span');
+          until.className = 'until';
+          duration.append(until);
+        }
+
+        const description = document.createElement('div');
+        description.className = 'description';
+        description.textContent = event.note?.trim() || event.title;
+
+        text.append(duration, description);
+        track.append(bar, text);
+        row.append(index, camera, track);
+
+        rows.push({ id: event.id, track, bar, until });
+        return row;
+      }
+
+      function updateBars(timeline) {
+        const byId = new Map(timeline.map((item) => [item.event.id, item]));
+        for (const row of rows) {
+          const item = byId.get(row.id);
+          if (!item) continue;
+          const width = row.track.clientWidth;
+          const left = ((item.start - item.rampIn) / WINDOW_MS) * width;
+          const barWidth = ((item.rampIn + item.duration) / WINDOW_MS) * width;
+          row.bar.style.width = `${Math.max(barWidth, 2)}px`;
+          row.bar.style.transform = `translateX(${left}px)`;
+          if (row.until) {
+            row.until.textContent = `+${formatSeconds(Math.max(item.start - item.rampIn, 0))}`;
+          }
+        }
+      }
+
+      function updateOnAir(timeline) {
+        const current = timeline.find((item) => item.current);
+        if (!current) {
+          elements.onairCamera.textContent = '–';
+          elements.onairProgress.style.width = '0%';
+          elements.onairRemaining.textContent = '';
+          return;
+        }
+        const elapsed = -current.start;
+        const progress = current.duration > 0 ? Math.min(Math.max(elapsed / current.duration, 0), 1) : 0;
+        elements.onairCamera.textContent = getCamera(current.event) ?? '?';
+        elements.onairProgress.style.width = `${progress * 100}%`;
+        elements.onairRemaining.textContent = formatSeconds(Math.max(current.duration - elapsed, 0));
+      }
+
+      function updateHeader(timeline) {
+        const first = timeline[0]?.event;
+        const group = first ? state.groups.get(first.id) : null;
+        elements.groupIndex.textContent = first?.cue ?? '';
+        elements.groupTitle.textContent = group?.title || state.rundownTitle || 'Kameras';
+        elements.groupSubtitle.textContent = group ? state.rundownTitle : '';
+      }
+
+      function updateFooter() {
+        const clock = state.runtime.clock;
+        if (typeof clock === 'number') {
+          const interpolated = clock + (performance.now() - (state.clockReceivedAt ?? performance.now()));
+          elements.clock.textContent = formatClock(interpolated);
+        }
+        const playback = state.runtime.timer?.playback;
+        const labels = { play: 'läuft', pause: 'Pause', stop: 'gestoppt', armed: 'geladen', roll: 'Roll' };
+        elements.state.textContent = labels[playback] ?? '';
+      }
+
+      // --- helpers ------------------------------------------------------
+
+      /** "Kam 6" -> "6", "6" -> "6", anything without a number is shown as is */
+      function getCamera(event) {
+        const match = String(event.title ?? '').match(/\d+/);
+        return match ? match[0] : event.title || null;
+      }
+
+      function toggleCamera(camera) {
+        state.selectedCamera = state.selectedCamera === camera ? null : camera;
+        try {
+          if (state.selectedCamera === null) localStorage.removeItem('kameras-selected');
+          else localStorage.setItem('kameras-selected', state.selectedCamera);
+        } catch {
+          // storage may be unavailable, the selection then only lasts until reload
+        }
+      }
+
+      function readSelectedCamera() {
+        try {
+          return localStorage.getItem('kameras-selected');
+        } catch {
+          return null;
+        }
+      }
+
+      /**
+       * The bar spans the fade in before the event plus the event itself
+       * a ramp up over the incoming transition, a ramp down over the outgoing one, hard edges for cuts
+       */
+      function makeBarGradient(colour, item) {
+        const total = item.rampIn + item.duration;
+        if (total <= 0) return colour;
+        const clear = withAlpha(colour, 0);
+        const rampInEnd = Math.min((item.rampIn / total) * 100, 100);
+        const rampOutStart = Math.max(((total - item.rampOut) / total) * 100, rampInEnd);
+        const stops = [
+          item.rampIn > 0 ? `${clear} 0%` : `${colour} 0%`,
+          `${colour} ${rampInEnd}%`,
+          `${colour} ${rampOutStart}%`,
+          item.rampOut > 0 ? `${clear} 100%` : `${colour} 100%`,
+        ];
+        return `linear-gradient(90deg, ${stops.join(', ')})`;
+      }
+
+      /** duration of the transition into an event, 0 for cuts */
+      function getTransitionMs(event) {
+        const name = String(event.custom?.[TRANSITION_FIELD] ?? '').trim();
+        if (CUT_NAMES.includes(name.toLowerCase())) return 0;
+        const duration = Number(event.custom?.[TRANSITION_DURATION_FIELD]);
+        return Number.isFinite(duration) && duration > 0 ? duration : 0;
+      }
+
+      function withAlpha(colour, alpha) {
+        const rgb = parseColour(colour);
+        return rgb ? `rgb(${rgb[0]} ${rgb[1]} ${rgb[2]} / ${alpha})` : colour;
+      }
+
+      function getContrastColour(colour) {
+        const rgb = parseColour(colour);
+        if (!rgb) return '#fff';
+        const luminance = (0.299 * rgb[0] + 0.587 * rgb[1] + 0.114 * rgb[2]) / 255;
+        return luminance > 0.6 ? '#000' : '#fff';
+      }
+
+      function parseColour(colour) {
+        const hex = String(colour).trim().replace('#', '');
+        if (/^[0-9a-f]{3}$/i.test(hex)) return [...hex].map((c) => parseInt(c + c, 16));
+        if (/^[0-9a-f]{6}([0-9a-f]{2})?$/i.test(hex)) {
+          return [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+        }
+        return null;
+      }
+
+      function formatSeconds(ms) {
+        const seconds = ms / 1000;
+        if (seconds < 10) return `${Math.round(seconds * 10) / 10}s`.replace('.', ',');
+        if (seconds < 60) return `${Math.round(seconds)}s`;
+        const total = Math.round(seconds);
+        return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
+      }
+
+      function formatClock(ms) {
+        const total = Math.floor(ms / 1000) % 86400;
+        const hours = Math.floor(total / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+        const seconds = total % 60;
+        return [hours, minutes, seconds].map((value) => String(value).padStart(2, '0')).join(':');
+      }
+
+      function getStageHash() {
+        const href = window.location.href;
+        if (!href.includes('getontime.no')) return '';
+        const stageHash = href.split('/').at(3);
+        return stageHash ? `/${stageHash}` : '';
+      }
+    </script>
+  </body>
+</html>
