@@ -111,6 +111,22 @@
         font-size: 1.1rem;
       }
 
+      .settings {
+        display: flex;
+        gap: 1rem;
+      }
+
+      .settings .grow {
+        flex: 1 1 auto;
+      }
+
+      .ramp {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        pointer-events: none;
+      }
+
       .transport {
         display: flex;
         align-items: center;
@@ -287,10 +303,18 @@
     </section>
     <audio id="audio" preload="auto"></audio>
 
-    <section class="panel">
-      <label>
+    <section class="panel settings">
+      <label class="grow">
         Name der Gruppe in Ontime
         <input type="text" id="group-name" placeholder="z. B. Songtitel" />
+      </label>
+      <label>
+        Blende mit ⇧ + Zahl
+        <input type="text" id="blend-name" value="Überblende" />
+      </label>
+      <label>
+        Dauer der Blende (ms)
+        <input type="text" id="blend-duration" value="1000" inputmode="numeric" />
       </label>
     </section>
 
@@ -307,6 +331,7 @@
       <div class="keys">
         <span><kbd>Leertaste</kbd> Start / Pause</span>
         <span><kbd>1</kbd>–<kbd>8</kbd> Schnitt auf Kam 1–8</span>
+        <span><kbd>⇧</kbd> + <kbd>1</kbd>–<kbd>8</kbd> Blende auf Kam 1–8 (beginnt beim Drücken)</span>
         <span><kbd>Enter</kbd> Schnitt ohne Kamera</span>
         <span><kbd>⌫</kbd> letzten Schnitt löschen</span>
         <span><kbd>←</kbd> <kbd>→</kbd> 5 s · mit <kbd>⇧</kbd> 1 s</span>
@@ -321,6 +346,7 @@
             <th>#</th>
             <th>Start</th>
             <th>Kamera</th>
+            <th>Übergang</th>
             <th>Dauer</th>
             <th></th>
           </tr>
@@ -345,6 +371,9 @@
        */
       const CAMERA_KEYS = 8;
       const MIN_DURATION_MS = 100;
+      /** keys of the custom fields in Ontime, as used by the OBS output and the kameras view */
+      const TRANSITION_FIELD = 'Uebergang';
+      const TRANSITION_DURATION_FIELD = 'Dauer';
       const DEFAULT_COLOURS = ['#3b5bff', '#e0a020', '#d12a2a', '#2aa84a', '#a040e0', '#20a0b0', '#e06090', '#8a8a8a'];
 
       const stageHash = getStageHash();
@@ -359,6 +388,8 @@
           'file-input',
           'audio',
           'group-name',
+          'blend-name',
+          'blend-duration',
           'play',
           'time',
           'total',
@@ -376,7 +407,7 @@
       );
 
       const state = {
-        cuts: [], // { time: seconds, camera: string | null }
+        cuts: [], // { time: seconds, camera: string | null, blend: { name, ms } | null }
         fileName: null,
         // stopwatch, used without an audio file
         stopwatch: { running: false, startedAt: 0, offset: 0 },
@@ -442,14 +473,25 @@
 
       // --- cuts ----------------------------------------------------------
 
-      function addCut(camera) {
-        const time = now();
+      /**
+       * A cut starts its event at the key press
+       * a blend starts at the key press and its event starts when the blend is done
+       */
+      function addCut(camera, withBlend = false) {
+        const blend = withBlend ? getBlendSettings() : null;
+        const time = now() + (blend ? blend.ms / 1000 : 0);
         // replace a cut set at the same moment, eg: a quick correction
         state.cuts = state.cuts.filter((cut) => Math.abs(cut.time - time) > 0.05);
-        state.cuts.push({ time, camera, addedAt: Date.now() });
+        state.cuts.push({ time, camera, blend, addedAt: Date.now() });
         state.cuts.sort((a, b) => a.time - b.time);
         saveCuts();
         render();
+      }
+
+      function getBlendSettings() {
+        const name = elements['blend-name'].value.trim() || 'Überblende';
+        const ms = Math.max(Number.parseInt(elements['blend-duration'].value, 10) || 0, 0);
+        return { name, ms };
       }
 
       function removeLastAdded() {
@@ -479,7 +521,12 @@
         }
         cuts.forEach((cut, index) => {
           const end = index + 1 < cuts.length ? cuts[index + 1].time : total;
-          segments.push({ start: cut.time, end: Math.max(end, cut.time), camera: cut.camera });
+          segments.push({
+            start: cut.time,
+            end: Math.max(end, cut.time),
+            camera: cut.camera,
+            blend: cut.blend ?? null,
+          });
         });
         return segments;
       }
@@ -543,6 +590,12 @@
               endAction: 'play-next',
               colour: getColour(segment.camera, title),
             };
+            if (segment.blend && segment.blend.ms > 0) {
+              body.custom = {
+                [TRANSITION_FIELD]: segment.blend.name,
+                [TRANSITION_DURATION_FIELD]: String(segment.blend.ms),
+              };
+            }
             if (previousId) body.after = previousId;
             const event = await api(`/data/rundowns/${rundown.id}/entry`, {
               method: 'POST',
@@ -602,9 +655,8 @@
         elements.play.textContent = running ? '❚❚ Pause' : '▶︎ Start';
         elements.status.textContent = running ? 'Aufnahme läuft' : 'Pausiert';
         elements.status.classList.toggle('recording', running);
-        elements.total.textContent = hasAudio() && Number.isFinite(elements.audio.duration)
-          ? `/ ${formatTime(elements.audio.duration)}`
-          : '';
+        elements.total.textContent =
+          hasAudio() && Number.isFinite(elements.audio.duration) ? `/ ${formatTime(elements.audio.duration)}` : '';
 
         renderTimeline();
         renderList();
@@ -625,6 +677,17 @@
           node.style.color = getContrastColour(colour);
           node.textContent = segment.camera ?? '';
           elements.timeline.insertBefore(node, elements.playhead);
+
+          // a blend fades the camera in before its event starts
+          if (segment.blend && segment.blend.ms > 0) {
+            const blendSeconds = Math.min(segment.blend.ms / 1000, segment.start);
+            const ramp = document.createElement('div');
+            ramp.className = 'ramp';
+            ramp.style.left = `${((segment.start - blendSeconds) / total) * 100}%`;
+            ramp.style.width = `${(blendSeconds / total) * 100}%`;
+            ramp.style.background = `linear-gradient(90deg, transparent, ${colour})`;
+            elements.timeline.insertBefore(ramp, elements.playhead);
+          }
         }
       }
 
@@ -655,6 +718,14 @@
           badge.textContent = segment.leadIn ? 'Vorlauf' : title || 'ohne Kamera';
           camera.append(badge);
 
+          const transition = document.createElement('td');
+          transition.textContent =
+            segment.blend && segment.blend.ms > 0
+              ? `${segment.blend.name} ${formatDuration(segment.blend.ms / 1000)}`
+              : segment.leadIn
+                ? ''
+                : 'Schnitt';
+
           const duration = document.createElement('td');
           duration.textContent = formatDuration(segment.end - segment.start);
 
@@ -666,7 +737,7 @@
             actions.append(remove);
           }
 
-          row.append(index, start, camera, duration, actions);
+          row.append(index, start, camera, transition, duration, actions);
           elements.cuts.append(row);
         });
       }
@@ -693,13 +764,10 @@
         if (event.code === 'Space') {
           event.preventDefault();
           togglePlay();
-        } else if (/^[1-9]$/.test(event.key) && Number(event.key) <= CAMERA_KEYS) {
+        } else if (getCameraKey(event)) {
+          // with shift, the number keys start a blend
           event.preventDefault();
-          addCut(event.key);
-        } else if (/^Digit[1-9]$/.test(event.code) && Number(event.code.slice(5)) <= CAMERA_KEYS) {
-          // number keys with shift or another layout
-          event.preventDefault();
-          addCut(event.code.slice(5));
+          addCut(getCameraKey(event), event.shiftKey);
         } else if (event.key === 'Enter') {
           event.preventDefault();
           addCut(null);
@@ -715,6 +783,30 @@
           seek(0);
         }
       });
+
+      /** camera number of a number key, from the physical key so that shift and keyboard layouts do not matter */
+      function getCameraKey(event) {
+        const match = /^(?:Digit|Numpad)([1-9])$/.exec(event.code);
+        const camera = match ? match[1] : /^[1-9]$/.test(event.key) ? event.key : null;
+        return camera && Number(camera) <= CAMERA_KEYS ? camera : null;
+      }
+
+      // remember the blend settings
+      for (const id of ['blend-name', 'blend-duration']) {
+        try {
+          const saved = localStorage.getItem(`aufnahme-${id}`);
+          if (saved) elements[id].value = saved;
+        } catch {
+          // storage may be unavailable
+        }
+        elements[id].addEventListener('change', () => {
+          try {
+            localStorage.setItem(`aufnahme-${id}`, elements[id].value);
+          } catch {
+            // storage may be unavailable
+          }
+        });
+      }
 
       elements.play.addEventListener('click', (event) => {
         event.currentTarget.blur();
