@@ -26,6 +26,11 @@ const stepOptions: { value: OBSStepAction; label: string; placeholder: string }[
   { value: 'studio-transition', label: 'Take (studio mode transition)', placeholder: '' },
   { value: 'wait', label: 'Wait (ms)', placeholder: '1000' },
   {
+    value: 'run-macro',
+    label: 'Run macro (Advanced Scene Switcher)',
+    placeholder: '{{eventNext.custom.macro}}',
+  },
+  {
     value: 'wait-until-remaining',
     label: 'Wait until time left in event (ms)',
     placeholder: '{{eventNext.custom.transitionDuration}}',
@@ -95,7 +100,8 @@ export default function ObsOutputForm({ index, control, register, setValue, watc
           Steps run in OBS one after the other. Steps whose value is empty are skipped. Use &quot;Wait until time
           left&quot; to finish a transition exactly at the end of the running event: the following steps wait until the
           event has that much time left, eg: the duration of the next transition. An empty value waits for the end of
-          the event.
+          the event. &quot;Run macro&quot; needs the Advanced Scene Switcher plugin in OBS and accepts several macro
+          names separated by commas.
         </Panel.Description>
       </div>
 

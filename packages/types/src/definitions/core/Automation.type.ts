@@ -62,13 +62,14 @@ export const obsStepActions = [
   'studio-transition',
   'wait',
   'wait-until-remaining',
+  'run-macro',
 ] as const;
 
 export type OBSStepAction = (typeof obsStepActions)[number];
 
 export type OBSStep = {
   action: OBSStepAction;
-  /** scene name, transition name or time in milliseconds, depending on the action. Accepts templates */
+  /** scene name, transition name, macro names or time in milliseconds, depending on the action. Accepts templates */
   value: string;
 };
 

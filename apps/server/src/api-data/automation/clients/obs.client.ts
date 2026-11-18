@@ -305,6 +305,28 @@ export function toRequests(steps: OBSStep[], store: DeepReadonly<RuntimeStore>, 
       case 'wait-until-remaining':
         // handled by toPlan, which splits the steps around it
         break;
+      case 'run-macro': {
+        // comma separated macro names of the Advanced Scene Switcher plugin
+        const names = value
+          .split(',')
+          .map((name) => name.trim())
+          .filter(Boolean);
+        if (names.length === 0) {
+          logSkipped(step, target);
+          break;
+        }
+        names.forEach((name) => {
+          requests.push({
+            requestType: 'CallVendorRequest',
+            requestData: {
+              vendorName: 'AdvancedSceneSwitcher',
+              requestType: 'AdvancedSceneSwitcherRunMacro',
+              requestData: { name },
+            },
+          });
+        });
+        break;
+      }
       default:
         step.action satisfies never;
     }

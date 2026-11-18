@@ -78,6 +78,21 @@ describe('toRequests()', () => {
     expect(types).toStrictEqual(['SetCurrentPreviewScene', 'Sleep', 'TriggerStudioModeTransition']);
   });
 
+  it('runs one Advanced Scene Switcher macro per comma separated name', () => {
+    const requests = toRequests([{ action: 'run-macro', value: 'Intro, Licht an ,, ' }], store);
+    expect(requests).toStrictEqual(
+      ['Intro', 'Licht an'].map((name) => ({
+        requestType: 'CallVendorRequest',
+        requestData: {
+          vendorName: 'AdvancedSceneSwitcher',
+          requestType: 'AdvancedSceneSwitcherRunMacro',
+          requestData: { name },
+        },
+      })),
+    );
+    expect(toRequests([{ action: 'run-macro', value: '{{eventNext.custom.Makro}}' }], store)).toStrictEqual([]);
+  });
+
   it('clamps the transition duration to the range OBS accepts', () => {
     const requests = toRequests(
       [
