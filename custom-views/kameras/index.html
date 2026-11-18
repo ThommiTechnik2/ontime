@@ -411,7 +411,9 @@
       function getRemaining() {
         const timer = state.runtime.timer;
         if (!timer || timer.current === null || timer.current === undefined) return null;
-        if (timer.playback !== 'play') return timer.current;
+        // the timer only advances in play and roll mode, the server sends updates about once a second
+        const isRunning = timer.playback === 'play' || timer.playback === 'roll';
+        if (!isRunning) return timer.current;
         return timer.current - (performance.now() - state.timerReceivedAt);
       }
 
