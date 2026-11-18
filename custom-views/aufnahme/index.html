@@ -1,0 +1,827 @@
+<!doctype html>
+<html lang="de">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Aufnahme</title>
+    <link rel="icon" href="data:," />
+    <style>
+      :root {
+        --bg: #111;
+        --panel: #1d1d1d;
+        --line: #333;
+        --text: #f2f2f2;
+        --muted: #9a9a9a;
+        --accent: #3b82f6;
+        --record: #e10600;
+        --font: system-ui, -apple-system, 'Helvetica Neue', Arial, sans-serif;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      [hidden] {
+        display: none !important;
+      }
+
+      html,
+      body {
+        margin: 0;
+        min-height: 100%;
+        background: var(--bg);
+        color: var(--text);
+        font-family: var(--font);
+      }
+
+      body {
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+        padding: 1rem 1.5rem 2rem;
+        max-width: 1100px;
+        margin: 0 auto;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+      }
+
+      h1 {
+        font-size: 1.4rem;
+        margin: 0;
+      }
+
+      .rundown {
+        color: var(--muted);
+      }
+
+      .connection {
+        margin-left: auto;
+        width: 0.8rem;
+        height: 0.8rem;
+        border-radius: 50%;
+        background: #c00;
+      }
+
+      .connection.ok {
+        background: #1ed41e;
+      }
+
+      .panel {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 0.5rem;
+        padding: 1rem;
+      }
+
+      .drop {
+        display: flex;
+        align-items: center;
+        gap: 1rem;
+        border-style: dashed;
+        cursor: pointer;
+      }
+
+      .drop.over {
+        border-color: var(--accent);
+        background: #1b2433;
+      }
+
+      .drop .file {
+        color: var(--muted);
+      }
+
+      label {
+        display: flex;
+        flex-direction: column;
+        gap: 0.3rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      input[type='text'] {
+        background: #000;
+        color: var(--text);
+        border: 1px solid var(--line);
+        border-radius: 0.3rem;
+        padding: 0.5rem 0.6rem;
+        font-size: 1.1rem;
+      }
+
+      .transport {
+        display: flex;
+        align-items: center;
+        gap: 1.2rem;
+      }
+
+      .time {
+        font-size: 2.6rem;
+        font-variant-numeric: tabular-nums;
+        min-width: 11rem;
+      }
+
+      .total {
+        color: var(--muted);
+        font-size: 1.1rem;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .status {
+        margin-left: auto;
+        padding: 0.3rem 0.7rem;
+        border-radius: 0.3rem;
+        background: #333;
+        font-weight: 600;
+      }
+
+      .status.recording {
+        background: var(--record);
+      }
+
+      button {
+        background: #2c2c2c;
+        color: var(--text);
+        border: 1px solid #444;
+        border-radius: 0.3rem;
+        padding: 0.55rem 1rem;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+
+      button:hover {
+        background: #383838;
+      }
+
+      button.primary {
+        background: var(--accent);
+        border-color: var(--accent);
+      }
+
+      button:disabled {
+        opacity: 0.4;
+        cursor: default;
+      }
+
+      .timeline {
+        position: relative;
+        height: 4.5rem;
+        background: #000;
+        border-radius: 0.3rem;
+        overflow: hidden;
+        cursor: pointer;
+      }
+
+      .segment {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-weight: 700;
+        font-size: 1.2rem;
+        border-right: 1px solid #000;
+        overflow: hidden;
+      }
+
+      .playhead {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        width: 2px;
+        background: #fff;
+        box-shadow: 0 0 4px #000;
+        pointer-events: none;
+      }
+
+      .keys {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem 1.2rem;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      kbd {
+        display: inline-block;
+        min-width: 1.6rem;
+        padding: 0.1rem 0.4rem;
+        border: 1px solid #555;
+        border-bottom-width: 2px;
+        border-radius: 0.25rem;
+        background: #222;
+        color: var(--text);
+        font-family: var(--font);
+        text-align: center;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-variant-numeric: tabular-nums;
+      }
+
+      th,
+      td {
+        text-align: left;
+        padding: 0.35rem 0.5rem;
+        border-bottom: 1px solid var(--line);
+      }
+
+      th {
+        color: var(--muted);
+        font-weight: 500;
+      }
+
+      td.camera span {
+        display: inline-block;
+        min-width: 4.5rem;
+        padding: 0.15rem 0.5rem;
+        border-radius: 0.25rem;
+        font-weight: 600;
+      }
+
+      td.jump {
+        cursor: pointer;
+        color: #9cc2ff;
+      }
+
+      .empty {
+        color: var(--muted);
+        padding: 1rem 0;
+      }
+
+      .actions {
+        display: flex;
+        gap: 0.8rem;
+        align-items: center;
+      }
+
+      .message {
+        color: var(--muted);
+      }
+
+      .message.error {
+        color: #ff6b6b;
+      }
+
+      .message.ok {
+        color: #6bdc6b;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>Aufnahme</h1>
+      <span class="rundown" id="rundown-title"></span>
+      <div class="connection" id="connection" title="Verbindung zu Ontime"></div>
+    </header>
+
+    <section class="panel drop" id="drop" tabindex="-1">
+      <button type="button" id="choose">Audiodatei wählen</button>
+      <span class="file" id="file-name">oder hierher ziehen · ohne Datei läuft eine Stoppuhr</span>
+      <input type="file" id="file-input" accept="audio/*,video/*" hidden />
+    </section>
+    <audio id="audio" preload="auto"></audio>
+
+    <section class="panel">
+      <label>
+        Name der Gruppe in Ontime
+        <input type="text" id="group-name" placeholder="z. B. Songtitel" />
+      </label>
+    </section>
+
+    <section class="panel" style="display: flex; flex-direction: column; gap: 1rem">
+      <div class="transport">
+        <button type="button" id="play" title="Leertaste">▶︎ Start</button>
+        <div class="time" id="time">0:00,0</div>
+        <div class="total" id="total"></div>
+        <div class="status" id="status">Bereit</div>
+      </div>
+      <div class="timeline" id="timeline" title="Klicken, um an diese Stelle zu springen">
+        <div class="playhead" id="playhead"></div>
+      </div>
+      <div class="keys">
+        <span><kbd>Leertaste</kbd> Start / Pause</span>
+        <span><kbd>1</kbd>–<kbd>8</kbd> Schnitt auf Kam 1–8</span>
+        <span><kbd>Enter</kbd> Schnitt ohne Kamera</span>
+        <span><kbd>⌫</kbd> letzten Schnitt löschen</span>
+        <span><kbd>←</kbd> <kbd>→</kbd> 5 s · mit <kbd>⇧</kbd> 1 s</span>
+        <span><kbd>Pos1</kbd> zum Anfang</span>
+      </div>
+    </section>
+
+    <section class="panel">
+      <table>
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Start</th>
+            <th>Kamera</th>
+            <th>Dauer</th>
+            <th></th>
+          </tr>
+        </thead>
+        <tbody id="cuts"></tbody>
+      </table>
+      <div class="empty" id="no-cuts">Noch keine Schnitte. Starte mit der Leertaste und drücke 1–8 im Takt.</div>
+    </section>
+
+    <section class="actions">
+      <button type="button" class="primary" id="import">In Ontime übernehmen</button>
+      <button type="button" id="discard">Alles verwerfen</button>
+      <span class="message" id="message"></span>
+    </section>
+
+    <script>
+      /**
+       * Aufnahme: records camera cuts against a song and adds them to the Ontime rundown
+       * - the audio file stays in the browser, nothing is uploaded
+       * - each cut becomes an event "Kam N" in a new group at the end of the rundown
+       * - events are linked and play the next one, so the timing can be refined in the editor afterwards
+       */
+      const CAMERA_KEYS = 8;
+      const MIN_DURATION_MS = 100;
+      const DEFAULT_COLOURS = ['#3b5bff', '#e0a020', '#d12a2a', '#2aa84a', '#a040e0', '#20a0b0', '#e06090', '#8a8a8a'];
+
+      const stageHash = getStageHash();
+      const baseUrl = `${window.location.origin}${stageHash}`;
+      const socketUrl = `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}${stageHash}/ws`;
+
+      const elements = Object.fromEntries(
+        [
+          'drop',
+          'choose',
+          'file-name',
+          'file-input',
+          'audio',
+          'group-name',
+          'play',
+          'time',
+          'total',
+          'status',
+          'timeline',
+          'playhead',
+          'cuts',
+          'no-cuts',
+          'import',
+          'discard',
+          'message',
+          'connection',
+          'rundown-title',
+        ].map((id) => [id, document.getElementById(id)]),
+      );
+
+      const state = {
+        cuts: [], // { time: seconds, camera: string | null }
+        fileName: null,
+        // stopwatch, used without an audio file
+        stopwatch: { running: false, startedAt: 0, offset: 0 },
+        knownColours: new Map(), // title -> colour, from the existing rundown
+      };
+
+      restoreCuts();
+      connectSocket();
+      loadRundownInfo();
+      render();
+      requestAnimationFrame(tick);
+
+      // --- clock ---------------------------------------------------------
+
+      function hasAudio() {
+        return Boolean(elements.audio.src);
+      }
+
+      function isRunning() {
+        return hasAudio() ? !elements.audio.paused : state.stopwatch.running;
+      }
+
+      /** current position in seconds */
+      function now() {
+        if (hasAudio()) return elements.audio.currentTime;
+        const { running, startedAt, offset } = state.stopwatch;
+        return running ? offset + (performance.now() - startedAt) / 1000 : offset;
+      }
+
+      /** length of the take in seconds, used for the last event */
+      function totalLength() {
+        if (hasAudio() && Number.isFinite(elements.audio.duration)) return elements.audio.duration;
+        const lastCut = state.cuts.at(-1)?.time ?? 0;
+        return Math.max(now(), lastCut);
+      }
+
+      function togglePlay() {
+        if (hasAudio()) {
+          if (elements.audio.paused) elements.audio.play();
+          else elements.audio.pause();
+        } else {
+          const watch = state.stopwatch;
+          if (watch.running) {
+            watch.offset = now();
+            watch.running = false;
+          } else {
+            watch.startedAt = performance.now();
+            watch.running = true;
+          }
+        }
+        render();
+      }
+
+      function seek(seconds) {
+        const target = Math.max(0, Math.min(seconds, hasAudio() ? totalLength() : Infinity));
+        if (hasAudio()) {
+          elements.audio.currentTime = target;
+        } else {
+          state.stopwatch.offset = target;
+          state.stopwatch.startedAt = performance.now();
+        }
+      }
+
+      // --- cuts ----------------------------------------------------------
+
+      function addCut(camera) {
+        const time = now();
+        // replace a cut set at the same moment, eg: a quick correction
+        state.cuts = state.cuts.filter((cut) => Math.abs(cut.time - time) > 0.05);
+        state.cuts.push({ time, camera, addedAt: Date.now() });
+        state.cuts.sort((a, b) => a.time - b.time);
+        saveCuts();
+        render();
+      }
+
+      function removeLastAdded() {
+        if (state.cuts.length === 0) return;
+        const last = state.cuts.reduce((latest, cut) => (cut.addedAt > latest.addedAt ? cut : latest));
+        state.cuts = state.cuts.filter((cut) => cut !== last);
+        saveCuts();
+        render();
+      }
+
+      function removeCut(index) {
+        state.cuts.splice(index, 1);
+        saveCuts();
+        render();
+      }
+
+      /**
+       * The events to create: one per cut, lasting until the next cut
+       * a lead in without a camera covers the time before the first cut
+       */
+      function getSegments() {
+        const total = totalLength();
+        const segments = [];
+        const cuts = state.cuts.filter((cut) => cut.time < total || !hasAudio());
+        if (cuts.length > 0 && cuts[0].time > 0.25) {
+          segments.push({ start: 0, end: cuts[0].time, camera: null, leadIn: true });
+        }
+        cuts.forEach((cut, index) => {
+          const end = index + 1 < cuts.length ? cuts[index + 1].time : total;
+          segments.push({ start: cut.time, end: Math.max(end, cut.time), camera: cut.camera });
+        });
+        return segments;
+      }
+
+      // --- ontime --------------------------------------------------------
+
+      async function api(path, options = {}) {
+        const response = await fetch(`${baseUrl}${path}`, {
+          headers: { 'Content-Type': 'application/json' },
+          ...options,
+        });
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok) throw new Error(body.message ?? `HTTP ${response.status}`);
+        return body;
+      }
+
+      async function loadRundownInfo() {
+        try {
+          const rundown = await api('/data/rundowns/current');
+          elements['rundown-title'].textContent = rundown.title ? `→ ${rundown.title}` : '';
+          // reuse the colours already used for each camera
+          const colours = new Map();
+          for (const id of rundown.flatOrder ?? []) {
+            const entry = rundown.entries[id];
+            if (entry?.type === 'event' && entry.colour) colours.set(entry.title, entry.colour);
+          }
+          state.knownColours = colours;
+          render();
+        } catch (error) {
+          console.error('Aufnahme: could not load the rundown', error);
+        }
+      }
+
+      async function importToOntime() {
+        const segments = getSegments();
+        if (segments.length === 0) {
+          showMessage('Keine Schnitte zum Übernehmen.', 'error');
+          return;
+        }
+        const groupTitle = elements['group-name'].value.trim() || state.fileName || 'Aufnahme';
+
+        elements.import.disabled = true;
+        showMessage('Wird übernommen …');
+        try {
+          const rundown = await api('/data/rundowns/current');
+          const group = await api(`/data/rundowns/${rundown.id}/entry`, {
+            method: 'POST',
+            body: JSON.stringify({ type: 'group', title: groupTitle }),
+          });
+
+          let previousId = null;
+          for (const segment of segments) {
+            const title = getTitle(segment.camera);
+            const body = {
+              type: 'event',
+              parent: group.id,
+              title,
+              duration: Math.max(Math.round((segment.end - segment.start) * 1000), MIN_DURATION_MS),
+              timeStrategy: 'lock-duration',
+              linkStart: true,
+              endAction: 'play-next',
+              colour: getColour(segment.camera, title),
+            };
+            if (previousId) body.after = previousId;
+            const event = await api(`/data/rundowns/${rundown.id}/entry`, {
+              method: 'POST',
+              body: JSON.stringify(body),
+            });
+            previousId = event.id;
+          }
+          showMessage(`${segments.length} Events in der Gruppe „${groupTitle}" angelegt.`, 'ok');
+        } catch (error) {
+          showMessage(`Fehler beim Übernehmen: ${error.message}`, 'error');
+        } finally {
+          elements.import.disabled = false;
+        }
+      }
+
+      function getTitle(camera) {
+        return camera ? `Kam ${camera}` : '';
+      }
+
+      function getColour(camera, title) {
+        if (!camera) return '';
+        return state.knownColours.get(title) ?? DEFAULT_COLOURS[(Number(camera) - 1) % DEFAULT_COLOURS.length];
+      }
+
+      function connectSocket() {
+        const socket = new WebSocket(socketUrl);
+        socket.onopen = () => elements.connection.classList.add('ok');
+        socket.onclose = () => {
+          elements.connection.classList.remove('ok');
+          setTimeout(connectSocket, 1000);
+        };
+        socket.onmessage = (message) => {
+          try {
+            const data = JSON.parse(message.data);
+            if (data.tag === 'refetch') loadRundownInfo();
+          } catch {
+            // ignore messages we do not understand
+          }
+        };
+      }
+
+      // --- rendering -----------------------------------------------------
+
+      function tick() {
+        const position = now();
+        elements.time.textContent = formatTime(position);
+        const total = totalLength();
+        if (total > 0) {
+          elements.playhead.style.left = `${Math.min(position / total, 1) * 100}%`;
+        }
+        if (!hasAudio() && isRunning()) renderTimeline();
+        requestAnimationFrame(tick);
+      }
+
+      function render() {
+        const running = isRunning();
+        elements.play.textContent = running ? '❚❚ Pause' : '▶︎ Start';
+        elements.status.textContent = running ? 'Aufnahme läuft' : 'Pausiert';
+        elements.status.classList.toggle('recording', running);
+        elements.total.textContent = hasAudio() && Number.isFinite(elements.audio.duration)
+          ? `/ ${formatTime(elements.audio.duration)}`
+          : '';
+
+        renderTimeline();
+        renderList();
+      }
+
+      function renderTimeline() {
+        const total = totalLength();
+        const segments = getSegments();
+        elements.timeline.querySelectorAll('.segment').forEach((node) => node.remove());
+        if (total <= 0) return;
+        for (const segment of segments) {
+          const node = document.createElement('div');
+          node.className = 'segment';
+          const colour = segment.camera ? getColour(segment.camera, getTitle(segment.camera)) : '#2a2a2a';
+          node.style.left = `${(segment.start / total) * 100}%`;
+          node.style.width = `${((segment.end - segment.start) / total) * 100}%`;
+          node.style.background = colour;
+          node.style.color = getContrastColour(colour);
+          node.textContent = segment.camera ?? '';
+          elements.timeline.insertBefore(node, elements.playhead);
+        }
+      }
+
+      function renderList() {
+        const segments = getSegments();
+        elements.cuts.replaceChildren();
+        elements['no-cuts'].hidden = state.cuts.length > 0;
+
+        segments.forEach((segment, position) => {
+          const row = document.createElement('tr');
+
+          const index = document.createElement('td');
+          index.textContent = String(position + 1);
+
+          const start = document.createElement('td');
+          start.className = 'jump';
+          start.textContent = formatTime(segment.start);
+          start.title = 'Hierhin springen';
+          start.addEventListener('click', () => seek(segment.start));
+
+          const camera = document.createElement('td');
+          camera.className = 'camera';
+          const badge = document.createElement('span');
+          const title = getTitle(segment.camera);
+          const colour = segment.camera ? getColour(segment.camera, title) : '#333';
+          badge.style.background = colour;
+          badge.style.color = getContrastColour(colour);
+          badge.textContent = segment.leadIn ? 'Vorlauf' : title || 'ohne Kamera';
+          camera.append(badge);
+
+          const duration = document.createElement('td');
+          duration.textContent = formatDuration(segment.end - segment.start);
+
+          const actions = document.createElement('td');
+          if (!segment.leadIn) {
+            const remove = document.createElement('button');
+            remove.textContent = 'Löschen';
+            remove.addEventListener('click', () => removeCut(state.cuts.indexOf(findCut(segment.start))));
+            actions.append(remove);
+          }
+
+          row.append(index, start, camera, duration, actions);
+          elements.cuts.append(row);
+        });
+      }
+
+      function findCut(time) {
+        return state.cuts.find((cut) => cut.time === time);
+      }
+
+      function showMessage(text, kind = '') {
+        elements.message.textContent = text;
+        elements.message.className = `message ${kind}`;
+      }
+
+      // --- input ---------------------------------------------------------
+
+      document.addEventListener('keydown', (event) => {
+        const typing = event.target instanceof HTMLInputElement && event.target.type === 'text';
+        if (typing) {
+          if (event.key === 'Escape' || event.key === 'Enter') event.target.blur();
+          return;
+        }
+        if (event.metaKey || event.ctrlKey || event.altKey) return;
+
+        if (event.code === 'Space') {
+          event.preventDefault();
+          togglePlay();
+        } else if (/^[1-9]$/.test(event.key) && Number(event.key) <= CAMERA_KEYS) {
+          event.preventDefault();
+          addCut(event.key);
+        } else if (/^Digit[1-9]$/.test(event.code) && Number(event.code.slice(5)) <= CAMERA_KEYS) {
+          // number keys with shift or another layout
+          event.preventDefault();
+          addCut(event.code.slice(5));
+        } else if (event.key === 'Enter') {
+          event.preventDefault();
+          addCut(null);
+        } else if (event.key === 'Backspace') {
+          event.preventDefault();
+          removeLastAdded();
+        } else if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+          event.preventDefault();
+          const step = event.shiftKey ? 1 : 5;
+          seek(now() + (event.key === 'ArrowLeft' ? -step : step));
+        } else if (event.key === 'Home') {
+          event.preventDefault();
+          seek(0);
+        }
+      });
+
+      elements.play.addEventListener('click', (event) => {
+        event.currentTarget.blur();
+        togglePlay();
+      });
+
+      elements.timeline.addEventListener('click', (event) => {
+        const rect = elements.timeline.getBoundingClientRect();
+        seek(((event.clientX - rect.left) / rect.width) * totalLength());
+      });
+
+      elements.import.addEventListener('click', (event) => {
+        event.currentTarget.blur();
+        importToOntime();
+      });
+
+      elements.discard.addEventListener('click', (event) => {
+        event.currentTarget.blur();
+        if (state.cuts.length === 0) return;
+        if (!window.confirm('Alle Schnitte dieser Aufnahme verwerfen?')) return;
+        state.cuts = [];
+        saveCuts();
+        seek(0);
+        render();
+        showMessage('');
+      });
+
+      elements.choose.addEventListener('click', () => elements['file-input'].click());
+      elements['file-input'].addEventListener('change', () => loadFile(elements['file-input'].files[0]));
+
+      elements.drop.addEventListener('dragover', (event) => {
+        event.preventDefault();
+        elements.drop.classList.add('over');
+      });
+      elements.drop.addEventListener('dragleave', () => elements.drop.classList.remove('over'));
+      elements.drop.addEventListener('drop', (event) => {
+        event.preventDefault();
+        elements.drop.classList.remove('over');
+        loadFile(event.dataTransfer.files[0]);
+      });
+
+      for (const name of ['play', 'pause', 'ended', 'loadedmetadata', 'seeked']) {
+        elements.audio.addEventListener(name, render);
+      }
+
+      function loadFile(file) {
+        if (!file) return;
+        if (elements.audio.src) URL.revokeObjectURL(elements.audio.src);
+        elements.audio.src = URL.createObjectURL(file);
+        state.fileName = file.name.replace(/\.[^.]+$/, '');
+        elements['file-name'].textContent = file.name;
+        if (!elements['group-name'].value.trim()) elements['group-name'].value = state.fileName;
+        state.stopwatch = { running: false, startedAt: 0, offset: 0 };
+        restoreCuts();
+        render();
+      }
+
+      // --- storage -------------------------------------------------------
+
+      /** cuts are kept per file, so a reload does not lose a take */
+      function storageKey() {
+        return `aufnahme-cuts-${state.fileName ?? 'stoppuhr'}`;
+      }
+
+      function saveCuts() {
+        try {
+          localStorage.setItem(storageKey(), JSON.stringify(state.cuts));
+        } catch {
+          // storage may be unavailable, the take then only lasts until reload
+        }
+      }
+
+      function restoreCuts() {
+        try {
+          const saved = JSON.parse(localStorage.getItem(storageKey()) ?? '[]');
+          state.cuts = Array.isArray(saved) ? saved : [];
+        } catch {
+          state.cuts = [];
+        }
+      }
+
+      // --- helpers -------------------------------------------------------
+
+      function formatTime(seconds) {
+        const tenths = Math.floor(Math.max(seconds, 0) * 10);
+        const minutes = Math.floor(tenths / 600);
+        const rest = (tenths % 600) / 10;
+        return `${minutes}:${rest.toFixed(1).padStart(4, '0').replace('.', ',')}`;
+      }
+
+      function formatDuration(seconds) {
+        return `${(Math.round(seconds * 10) / 10).toFixed(1).replace('.', ',')} s`;
+      }
+
+      function getContrastColour(colour) {
+        const hex = String(colour).replace('#', '');
+        if (!/^[0-9a-f]{6}/i.test(hex)) return '#fff';
+        const [r, g, b] = [0, 2, 4].map((i) => parseInt(hex.slice(i, i + 2), 16));
+        return (0.299 * r + 0.587 * g + 0.114 * b) / 255 > 0.6 ? '#000' : '#fff';
+      }
+
+      function getStageHash() {
+        const href = window.location.href;
+        if (!href.includes('getontime.no')) return '';
+        const stageHash = href.split('/').at(3);
+        return stageHash ? `/${stageHash}` : '';
+      }
+    </script>
+  </body>
+</html>
